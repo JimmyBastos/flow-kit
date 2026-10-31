@@ -1,0 +1,123 @@
+#!/usr/bin/env node
+// Machine checks that run BEFORE any AI judgment.
+//   node gates.js run   --target <tag> [--e2e]     run the target's gate commands, fail fast
+//   node gates.js size  --feature <slug>           spec/plan line caps
+//   node gates.js diff  --base origin/main         task diff-size cap
+//   node gates.js testfirst --base origin/main     fix tasks: failing test commit must precede the fix
+//   node gates.js text  --feature <slug>           plain-language check: long sentences, figurative or vague words
+// Exit codes: 0 ok, 1 gate failed, 3 config error.
+import { spawnSync } from 'node:child_process';
+import { readdirSync, readFileSync, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { loadConfig } from './lib/config.js';
+import { matchesAny } from './lib/glob.js';
+
+export function countLines(text) { return text.split('\n').filter((l, i, a) => !(i === a.length - 1 && l === '')).length; }
+
+export function checkSizeCaps(files, limits) {
+  const problems = [];
+  for (const { name, text } of files) {
+    const n = countLines(text);
+    const cap = name === 'spec.md' ? limits.max_spec_lines : /^plan-.+\.md$/.test(name) ? limits.max_plan_lines : null;
+    if (cap && n > cap) problems.push({ file: name, lines: n, cap, fix: 'split the feature; never compress to fit' });
+  }
+  return problems;
+}
+
+export const MAX_SENTENCE_WORDS = 25;
+const VAGUE = [/\btravels?\b/i, /\bpicks? up\b/i, /\bbacks? up\b/i, /\blives? in\b/i, /\beyeball/i, /\bsqueez/i, /\bpaper over\b/i, /\bsweep\b/i, /\bthe (result|state)\b/i];
+
+// Plain-language check for the docs people read. Skips front matter, code blocks, tables and inline code.
+export function checkText(files, maxWords = MAX_SENTENCE_WORDS) {
+  const problems = [];
+  for (const { name, text } of files) {
+    let inFence = false;
+    text.split('\n').forEach((raw, i) => {
+      if (/^```/.test(raw)) { inFence = !inFence; return; }
+      if (inFence || /^\s*\|/.test(raw) || /^#{1,6}\s/.test(raw)) return;
+      const line = raw.replace(/`[^`]*`/g, 'X').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
+      for (const sentence of line.split(/(?<=[.!?])\s+/)) {
+        const words = sentence.split(/\s+/).filter(Boolean).length;
+        if (words > maxWords) problems.push({ file: name, line: i + 1, kind: 'long_sentence', words, text: sentence.slice(0, 80) });
+      }
+      for (const re of VAGUE) { const m = line.match(re); if (m) problems.push({ file: name, line: i + 1, kind: 'vague_word', text: m[0] }); }
+    });
+  }
+  return problems;
+}
+
+// numstat: [{file, added, deleted}] -> excludes .flow/ and lockfiles (not reviewable code)
+export function checkDiffSize(numstat, maxLines) {
+  const counted = numstat.filter((r) => !r.file.startsWith('.flow/') && !/(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|uv\.lock|Cargo\.lock|go\.sum)$/.test(r.file));
+  const total = counted.reduce((s, r) => s + r.added + r.deleted, 0);
+  return { total, cap: maxLines, ok: total <= maxLines };
+}
+
+// commits: oldest -> newest, each {sha, files:[...]}. A fix must have a commit touching tests
+// strictly before the first commit touching production code.
+export function checkTestFirst(commits, testGlobs) {
+  const isMeta = (f) => f.startsWith('.flow/') || /\.(md|txt)$/.test(f);
+  const isTest = (f) => matchesAny(f, testGlobs);
+  let seenTest = false;
+  for (const c of commits) {
+    const prod = c.files.filter((f) => !isTest(f) && !isMeta(f));
+    const tests = c.files.filter(isTest);
+    if (prod.length && tests.length && !seenTest) return { ok: false, sha: c.sha, reason: `commit ${c.sha.slice(0, 7)} mixes tests and production code; commit the failing test first, alone` };
+    if (prod.length && !seenTest) return { ok: false, sha: c.sha, reason: `commit ${c.sha.slice(0, 7)} changes production code (${prod[0]}) before any test commit` };
+    if (tests.length && !prod.length) seenTest = true;
+  }
+  return seenTest ? { ok: true } : { ok: false, reason: 'no test commit found' };
+}
+
+export function runGates(commands, cwd) {
+  const results = [];
+  for (const cmd of commands) {
+    // a gate that inherits an outer test runner's context can skip all its tests and still exit 0
+    const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
+    const r = spawnSync(cmd, { shell: true, cwd, encoding: 'utf8', env });
+    results.push({ cmd, status: r.status, output: ((r.stdout ?? '') + (r.stderr ?? '')).slice(-4000) });
+    if (r.status !== 0) break; // fail fast: cheapest gates first, ordering is the config's job
+  }
+  return { ok: results.every((r) => r.status === 0), results };
+}
+
+function git(args) {
+  const r = spawnSync('git', args, { encoding: 'utf8' });
+  if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
+  return r.stdout;
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const [cmd, ...rest] = process.argv.slice(2);
+  const arg = (n, d) => { const i = rest.indexOf(n); return i >= 0 ? rest[i + 1] : d; };
+  const { cfg, errors } = loadConfig();
+  if (errors.length) { console.error(errors.join('\n')); process.exit(3); }
+  let out;
+  if (cmd === 'run') {
+    const t = cfg.targets.find((x) => x.tag === arg('--target', cfg.targets[0].tag));
+    if (!t) { console.error('unknown target'); process.exit(3); }
+    const commands = [...t.gates, ...(rest.includes('--e2e') && t.e2e ? [t.e2e] : [])];
+    out = runGates(commands, t.path ?? '.');
+  } else if (cmd === 'size') {
+    const dir = `${cfg.hub ?? '.'}/.flow/active/${arg('--feature')}`;
+    const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.md')).map((name) => ({ name, text: readFileSync(`${dir}/${name}`, 'utf8') })) : [];
+    const problems = checkSizeCaps(files, cfg.limits);
+    out = { ok: problems.length === 0, problems };
+  } else if (cmd === 'text') {
+    const dir = `${cfg.hub ?? '.'}/.flow/active/${arg('--feature')}`;
+    const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.md') && !['analyze.md', 'drift.md'].includes(f)).map((name) => ({ name, text: readFileSync(`${dir}/${name}`, 'utf8') })) : [];
+    const problems = checkText(files);
+    out = { ok: problems.length === 0, problems };
+  } else if (cmd === 'diff') {
+    const base = arg('--base', 'origin/main');
+    const numstat = git(['diff', '--numstat', `${base}...HEAD`]).split('\n').filter(Boolean).map((l) => { const [a, d, f] = l.split('\t'); return { file: f, added: Number(a) || 0, deleted: Number(d) || 0 }; });
+    out = checkDiffSize(numstat, cfg.limits.max_task_diff_lines);
+  } else if (cmd === 'testfirst') {
+    const base = arg('--base', 'origin/main');
+    const shas = git(['rev-list', '--reverse', `${base}..HEAD`]).split('\n').filter(Boolean);
+    const commits = shas.map((sha) => ({ sha, files: git(['diff-tree', '--no-commit-id', '--name-only', '-r', sha]).split('\n').filter(Boolean) }));
+    out = checkTestFirst(commits, cfg.test_globs);
+  } else { console.error('usage: gates.js run|size|text|diff|testfirst'); process.exit(2); }
+  console.log(JSON.stringify(out, null, 2));
+  process.exit(out.ok ? 0 : 1);
+}

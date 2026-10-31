@@ -1,0 +1,11 @@
+topology: single
+targets:
+  - tag: app
+    path: .
+    gates: ["node --test"]
+tracker: none
+stages:
+  research:  { harness: claude-code, model: opus }
+  plan:      { harness: claude-code, model: opus }
+  implement: { harness: claude-code, model: opus }
+  review:    { harness: codex, model: gpt }

@@ -1,0 +1,15 @@
+topology: multi
+hub: .
+targets:
+  - tag: api
+    path: ../api
+    gates: ["node --test"]
+  - tag: app
+    path: ../app
+    gates: ["node --test"]
+tracker: none
+stages:
+  research:  { harness: claude-code, model: opus }
+  plan:      { harness: claude-code, model: opus }
+  implement: { harness: claude-code, model: opus }
+  review:    { harness: codex, model: gpt }

@@ -1,0 +1,14 @@
+topology: monorepo
+targets:
+  - tag: a
+    path: packages/a
+    gates: ["node --test"]
+  - tag: b
+    path: packages/b
+    gates: ["node --test"]
+tracker: none
+stages:
+  research:  { harness: claude-code, model: opus }
+  plan:      { harness: claude-code, model: opus }
+  implement: { harness: claude-code, model: opus }
+  review:    { harness: codex, model: gpt }

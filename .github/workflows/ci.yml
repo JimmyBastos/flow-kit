@@ -1,0 +1,32 @@
+# CI for flow-kit itself. The kit's gates are its own test suite: unit tests, the
+# installer e2e, the kit self-lint (skills may only reference real files), and the
+# fixture scenarios across single / monorepo / multi topologies. Zero dependencies,
+# so there is no install step.
+# Practice what the kit installs in projects: make "test" a required status check
+# on main (Settings -> Branches -> Require status checks), and block force pushes.
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]   # engines: >=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ matrix.node }}" }
+      - name: Tests (units, installer e2e, self-lint, fixture scenarios)
+        run: npm test

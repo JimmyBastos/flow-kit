@@ -1,0 +1,13 @@
+{
+  "name": "flow-kit",
+  "version": "0.1.0",
+  "description": "Run AI-written features to a merged pull request, with tests and review, in any harness.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test",
+    "fixtures": "node --test tests/fixtures.test.js"
+  },
+  "files": ["skills", "adapters", "templates", "schemas", "scripts"]
+}
