@@ -75,7 +75,7 @@ for (const kind of ['single', 'monorepo', 'multi']) {
     const g = flow(c.code, 'gates.js', ['run', '--target', c.tag], c.env);
     assert.equal(g.status, 0, g.out);
     // guard against vacuous gates: the tests must actually have run (fixture 1 test + the one added here)
-    assert.match(JSON.parse(g.stdout).results[0].output, /ℹ pass 2/, 'gate passed without running the tests');
+    assert.match(JSON.parse(g.stdout).results[0].output, /(?:#|ℹ) pass 2/, 'gate passed without running the tests');
     assert.equal(flow(c.code, 'gates.js', ['diff', '--base', 'origin/main'], c.env).status, 0);
 
     // shared state is written through FLOW_DIR, never in tasks.md
