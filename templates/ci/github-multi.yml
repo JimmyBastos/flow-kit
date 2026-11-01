@@ -27,7 +27,7 @@ jobs:
       - name: Run this target's gates
         run: node scripts/flow/gates.js run --target "$FLOW_TARGET"
       - name: Check task diff size
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'flow/')
         run: node scripts/flow/gates.js diff --base "origin/${{ github.base_ref }}"
       - name: Verify task review verdict
         if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'flow/')

@@ -27,7 +27,7 @@ jobs:
             node scripts/flow/gates.js run --target "$tag" || exit 1
           done
       - name: Task diff size
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'flow/')
         run: node scripts/flow/gates.js diff --base "origin/${{ github.base_ref }}"
       - name: Review verdict is present, passing and fresh
         if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'flow/')

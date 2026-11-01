@@ -39,6 +39,7 @@ function prepare(kind) {
     const workflow = readFileSync(join(code, '.github/workflows/flow-gates.yml'), 'utf8');
     assert.match(workflow, /FLOW_TARGET: api/);
     assert.match(workflow, /FLOW_CONFIG_B64/);
+    assert.match(workflow, /if: github\.event_name == 'pull_request' && startsWith\(github\.head_ref, 'flow\/'\)/);
     assert.doesNotMatch(workflow, /FLOW_HUB_READ_TOKEN|actions\/checkout@v4\n\s+with:\n\s+repository:/);
     const configB64 = workflow.match(/FLOW_CONFIG_B64: ([A-Za-z0-9+/=]+)/)?.[1];
     assert.ok(configB64, 'target workflow embeds its CI-only config projection');
