@@ -78,6 +78,7 @@ if (!oc.verified) log.push('WARN opencode not found or version unreadable: wrote
 // 5. instructions + skills link
 act('write CLAUDE.md (imports AGENTS.md)', () => { if (!existsSync('CLAUDE.md')) writeFileSync('CLAUDE.md', CLAUDE_MD); });
 act('link .claude/skills -> ../.agents/skills (copy on Windows)', () => {
+  if (!existsSync('.agents/skills')) return;
   mkdirSync('.claude', { recursive: true });
   if (existsSync('.claude/skills') || (() => { try { lstatSync('.claude/skills'); return true; } catch { return false; } })()) return;
   if (process.platform === 'win32') cpSync('.agents/skills', '.claude/skills', { recursive: true });
