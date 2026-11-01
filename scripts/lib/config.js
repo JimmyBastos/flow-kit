@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { readFileSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { parse } from './miniyaml.js';
