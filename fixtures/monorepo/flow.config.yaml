@@ -1,4 +1,5 @@
 topology: monorepo
+flow_dir: .flow
 targets:
   - tag: a
     path: packages/a
@@ -7,8 +8,25 @@ targets:
     path: packages/b
     gates: ["node --test"]
 tracker: none
-stages:
-  research:  { harness: claude-code, model: opus }
-  plan:      { harness: claude-code, model: opus }
-  implement: { harness: claude-code, model: opus }
-  review:    { harness: codex, model: gpt }
+capabilities:
+  reasoning:
+    candidates:
+      - harness: claude-code
+        model: opus
+        context_window: 200000
+  repository_exploration:
+    candidates:
+      - harness: claude-code
+        model: haiku
+        context_window: 200000
+  implementation:
+    candidates:
+      - harness: claude-code
+        model: sonnet
+        context_window: 200000
+  review:
+    prefer_different_harness: true
+    candidates:
+      - harness: codex
+        model: gpt
+        context_window: 200000

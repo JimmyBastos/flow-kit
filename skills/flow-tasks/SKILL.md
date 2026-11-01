@@ -5,7 +5,7 @@ description: Split approved plans into ordered tasks, each sized for one AI sess
 
 # flow-tasks
 
-Input: approved `spec.md` and `plan-*.md`. Output: `.flow/active/<slug>/tasks.md` (template: `templates/tasks.md`).
+Input: approved `spec.md` and `plan-*.md`. Output: `<flow_dir>/active/<slug>/tasks.md` (template: `templates/tasks.md`).
 
 ## Rules for tasks
 - Format `### N. [tag] Imperative title`, then Goal, Context, Acceptance criteria, Type (`feature` or `fix`), Estimate.

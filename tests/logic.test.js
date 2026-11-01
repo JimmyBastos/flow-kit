@@ -1,23 +1,44 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
 import { globToRegExp, matchesAny } from '../scripts/lib/glob.js';
-import { normalize, validate, warnings, ALWAYS_HIGH_RISK } from '../scripts/lib/config.js';
+import { normalize, validate, warnings, ALWAYS_HIGH_RISK, flowDir, targetDir } from '../scripts/lib/config.js';
 import { parse } from '../scripts/lib/miniyaml.js';
 import { applyPolicy, classify, validateVerdict } from '../scripts/verdict.js';
 import { decide } from '../scripts/merge.js';
 import { checkText, checkSizeCaps, checkDiffSize, checkTestFirst, runGates } from '../scripts/gates.js';
 import { parseState, serializeState, validateState, parseTasks, deriveStatus } from '../scripts/flow-state.js';
 import { checkPush } from '../scripts/pre-push.js';
+import { selectCandidate, compactionForCandidate, detectInstalledHarnesses, resolveDefaultModel } from '../scripts/capabilities.js';
+import { checkRequiredChecks, waitForRequiredChecks } from '../scripts/check-ci.js';
 
 const goodCfg = () => normalize(parse(`
 topology: single
+flow_dir: .flow
 targets:
   - tag: api
     path: .
     gates: ["npm test"]
-stages:
-  implement: { harness: claude-code, model: opus }
-  review: { harness: codex, model: gpt }
+capabilities:
+  reasoning:
+    candidates:
+      - harness: claude-code
+        model: opus
+        context_window: 200000
+      - harness: opencode
+        model: opencode-go/glm-5.3
+        context_window: 1000000
+  implementation:
+    candidates:
+      - harness: claude-code
+        model: sonnet
+  review:
+    prefer_different_harness: true
+    candidates:
+      - harness: opencode
+        model: opencode-go/glm-5.3
+      - harness: claude-code
+        model: sonnet
 `));
 
 test('glob: ** crosses directories, * does not', () => {
@@ -34,17 +55,32 @@ test('config: defaults fill in, valid config has no errors', () => {
   assert.deepEqual(validate(cfg), []);
 });
 
+test('config: flow folder and target paths resolve from the config file', () => {
+  const cfg = normalize(parse(`topology: multi
+flow_dir: .flow-data
+targets:
+  - tag: api
+    path: ../api
+    gates: ["npm test"]
+`));
+  assert.equal(flowDir(cfg, '/workspace/docs/flow.config.yaml'), '/workspace/docs/.flow-data');
+  assert.equal(targetDir(cfg, cfg.targets[0], '/workspace/docs/flow.config.yaml'), '/workspace/api');
+  const oldTarget = process.env.FLOW_TARGET; const oldPath = process.env.FLOW_TARGET_PATH;
+  process.env.FLOW_TARGET = 'api'; process.env.FLOW_TARGET_PATH = '/worktrees/api-task';
+  assert.equal(targetDir(cfg, cfg.targets[0], '/workspace/docs/flow.config.yaml'), '/worktrees/api-task');
+  if (oldTarget === undefined) delete process.env.FLOW_TARGET; else process.env.FLOW_TARGET = oldTarget;
+  if (oldPath === undefined) delete process.env.FLOW_TARGET_PATH; else process.env.FLOW_TARGET_PATH = oldPath;
+});
+
 test('config: catches the mistakes that matter', () => {
   const cfg = goodCfg();
-  cfg.stages.review.harness = 'claude-code';
+  cfg.capabilities.review.candidates[0].harness = 'claude-code';
   assert.equal(validate(cfg).join(), '');
-  assert.match(warnings(cfg).join(), /same harness/);
+  assert.match(warnings(cfg).join(), /same first-choice harness/);
   assert.match(validate({ ...goodCfg(), workspace: 'tmux' }).join(), /workspace/);
   assert.equal(validate({ ...goodCfg(), workspace: 'orca' }).join(), '');
   const multi = { ...goodCfg(), topology: 'multi' };
-  assert.match(validate(multi).join(), /hub/);
-  const empty = { ...goodCfg(), stages: {} };
-  assert.match(validate(empty).join(), /stages.implement/);
+  assert.equal(validate(multi).join(), '');
   const nogates = goodCfg(); nogates.targets[0].gates = [];
   assert.match(validate(nogates).join(), /at least one gate/);
 });
@@ -85,10 +121,74 @@ test('merge: auto only when checks pass and no high-risk path is touched', () =>
 
 test('merge: the agent cannot auto-merge changes to its own guardrails', () => {
   const config = goodCfg();
-  for (const f of ['flow.config.yaml', '.github/workflows/ci.yml', 'scripts/flow/guard-destructive.js', 'docs/rules/r.md', '.githooks/pre-push']) {
+  for (const f of ['flow.config.yaml', '.github/workflows/ci.yml', 'scripts/flow/guard-destructive.js', '.flow/decisions/0001-choice.md', 'docs/rules/r.md', '.githooks/pre-push']) {
     assert.equal(decide({ changedFiles: [f], config }).action, 'human', f);
   }
   assert.ok(ALWAYS_HIGH_RISK.length > 3);
+});
+
+test('capabilities: ordered candidates skip unavailable harnesses and prefer an independent review harness', () => {
+  const profile = {
+    prefer_different_harness: true,
+    candidates: [
+      { harness: 'opencode', model: 'opencode-go/glm-5.3' },
+      { harness: 'opencode', model: 'opencode-go/glm-5.3-flash' },
+      { harness: 'claude-code', model: 'sonnet' },
+    ],
+  };
+  assert.deepEqual(selectCandidate(profile, { usedHarness: 'claude-code' }), profile.candidates[0]);
+  assert.deepEqual(selectCandidate(profile, { usedHarness: 'opencode' }), profile.candidates[2]);
+  assert.deepEqual(selectCandidate(profile, { availableHarnesses: ['opencode'], unavailableModels: ['opencode-go/glm-5.3'] }), profile.candidates[1]);
+  assert.equal(selectCandidate(profile, { availableHarnesses: ['codex'] }), null);
+  assert.deepEqual(compactionForCandidate({ context_window: 1000000 }, { trigger_percent: 80 }), {
+    context_window: 1000000, trigger_percent: 80, compact_at_tokens: 800000,
+  });
+});
+
+test('capabilities: provider privacy policy excludes models with retention or training', () => {
+  const profile = { candidates: [
+    { harness: 'opencode', model: 'opencode-go/gpt-6-luna', data_policy: { retention_days: 30, trains_on_requests: false } },
+    { harness: 'opencode', model: 'opencode-go/glm-5.3', data_policy: { retention_days: 0, trains_on_requests: false } },
+  ] };
+  const chosen = selectCandidate(profile, { modelPolicy: { providers: { 'opencode-go': { max_retention_days: 0, allow_training: false } } } });
+  assert.equal(chosen.model, 'opencode-go/glm-5.3');
+});
+
+test('capabilities: auto/default candidates use installed harness adapters', () => {
+  const registry = new URL('../adapters/harness/registry.json', import.meta.url);
+  const harnesses = detectInstalledHarnesses(fileURLToPath(registry), (command) => ({ status: command === 'opencode' ? 0 : 1 }));
+  assert.deepEqual(harnesses, ['opencode']);
+  const profile = { candidates: [{ harness: 'auto', model: 'default' }, { harness: 'auto', model: 'default' }] };
+  assert.deepEqual(selectCandidate(profile, { availableHarnesses: harnesses }), { harness: 'opencode', model: 'default' });
+  assert.deepEqual(resolveDefaultModel({ harness: 'claude-code', model: 'default' }, 'repository_exploration', {
+    'claude-code': { defaults: { repository_exploration: { model: 'haiku', context_window: 1000000 } } },
+  }), { harness: 'claude-code', model: 'haiku', context_window: 1000000 });
+});
+
+test('CI gate: every configured check must exist and pass', () => {
+  const required = ['flow-gates / gates', 'test / unit'];
+  assert.deepEqual(checkRequiredChecks([
+    { workflowName: 'flow-gates', name: 'gates', status: 'COMPLETED', conclusion: 'SUCCESS' },
+    { workflowName: 'test', name: 'unit', status: 'COMPLETED', conclusion: 'SUCCESS' },
+  ], required), { ok: true, missing: [], pending: [], failed: [] });
+  assert.deepEqual(checkRequiredChecks([{ name: 'flow-gates / gates', status: 'IN_PROGRESS' }], required), {
+    ok: false, missing: ['test / unit'], pending: ['flow-gates / gates'], failed: [],
+  });
+  assert.deepEqual(checkRequiredChecks([{ name: 'flow-gates / gates', status: 'COMPLETED', conclusion: 'FAILURE' }], ['flow-gates / gates']).failed, ['flow-gates / gates']);
+});
+
+test('CI gate waits for checks that are pending, then returns the final result', async () => {
+  const snapshots = [
+    { checks: [{ name: 'flow-gates / gates', status: 'IN_PROGRESS' }] },
+    { checks: [{ name: 'flow-gates / gates', status: 'COMPLETED', conclusion: 'SUCCESS' }] },
+  ];
+  let i = 0;
+  const result = await waitForRequiredChecks(7, ['flow-gates / gates'], {
+    timeoutMs: 1000,
+    read: () => snapshots[i++],
+    wait: async () => {},
+  });
+  assert.deepEqual(result, { ok: true, missing: [], pending: [], failed: [] });
 });
 
 test('gates: size caps for spec and plan only', () => {

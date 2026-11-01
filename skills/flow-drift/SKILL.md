@@ -7,6 +7,8 @@ description: Compare a feature's plans with the code that was actually built, cl
 
 Never edit code. You may edit only `drift.md` and, after the user decides, the doc lines that the decisions made out of date.
 
+Use `repository_exploration` to inspect targets and `reasoning` to classify differences. The project config selects the harness and model candidates.
+
 1. **Extract claims** from each `plan-<tag>.md` that can be checked: contracts (endpoints, event names, field names and types), files/modules named, migrations, behaviours named in the Changes section.
 2. **Check each claim against the real target code** (use a subagent per target for large plans). Record: claim, actual, evidence path:line. Verify against code on the default branch, not memory.
 3. **Classify** every divergence with a category: `contradicts_spec` (breaks a spec success criterion or Not included), `new_behavior` (built something the plan did not say), `rename`, `refactor`, or another label you define. Severity comes from `approvals.drift` in `flow.config.yaml`; an unknown category is `block`.

@@ -5,11 +5,13 @@ description: Implement exactly one task from tasks.md on its own branch, committ
 
 # flow-implement
 
-Input: slug and task id. You work in a worktree on branch `flow/<slug>/<id>`; if the branch does not exist create it from the default branch. In `multi` topology the code lives in the target worktree, and `.flow` state lives in the hub: export `FLOW_ROOT=<hub path>` before calling `flow-state.js`.
+Input: slug and task id. You work in a worktree on branch `flow/<slug>/<id>`; if the branch does not exist create it from the default branch. Set `FLOW_CONFIG` and `FLOW_DIR` before calling scripts. In `multi`, `FLOW_DIR` points to the hub's configured flow folder.
+
+Use the `implementation` capability. A task may request another configured capability. Do not choose a model by skill name.
 
 ## Before coding
 1. If this is not a brand-new task, run `/flow-resume` first and follow it.
-2. Read: the task (Goal, Context, Acceptance), the spec's success criteria it cites, `plan-<tag>.md`, `docs/rules/index.md` and every rule file whose globs match the files you expect to touch, `docs/rules/invariants.md`.
+2. Select the `implementation` capability using `node scripts/flow/capabilities.js select implementation`. Read the task, cited success criteria, target plan, and matching `docs/rules/` files.
 3. `node scripts/flow/flow-state.js write <slug> <id> status=in_progress branch=flow/<slug>/<id> next_step="<first step>" next_harness=<review harness>`; commit it.
 
 ## Work loop (repeat per small step)

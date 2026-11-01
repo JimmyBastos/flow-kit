@@ -4,8 +4,9 @@
 //   node merge.js run <pr-number>                          -> decide, then `gh pr merge --auto --squash` or label for human
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { loadConfig, ALWAYS_HIGH_RISK } from './lib/config.js';
+import { loadConfig, requiredChecks, ALWAYS_HIGH_RISK } from './lib/config.js';
 import { matchingGlob } from './lib/glob.js';
+import { checkRequiredChecks } from './check-ci.js';
 
 export function decide({ changedFiles, config, checksPassed = true }) {
   const risky = [...(config.merge?.high_risk_paths ?? []), ...ALWAYS_HIGH_RISK];
@@ -39,7 +40,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const out = spawnSync('gh', ['pr', 'view', pr, '--json', 'files,statusCheckRollup'], { encoding: 'utf8' });
     if (out.status !== 0) { console.error(out.stderr); process.exit(3); }
     const info = JSON.parse(out.stdout);
-    const checksPassed = (info.statusCheckRollup ?? []).length > 0 && info.statusCheckRollup.every((c) => ['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(c.conclusion));
+    const checks = checkRequiredChecks(info.statusCheckRollup, requiredChecks(cfg));
+    const checksPassed = checks.ok;
+    if (!checksPassed) console.error(`Required CI checks are not green: ${JSON.stringify(checks)}`);
     const d = decide({ changedFiles: info.files.map((f) => f.path), config: cfg, checksPassed });
     console.log(JSON.stringify(d, null, 2));
     if (d.action === 'auto') process.exit(spawnSync('gh', ['pr', 'merge', pr, '--auto', '--squash'], { stdio: 'inherit' }).status ?? 1);

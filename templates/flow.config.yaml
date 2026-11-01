@@ -1,7 +1,7 @@
 # flow.config.yaml, written by /flow-init. Subset-YAML only (the scripts have no dependencies):
 # 2-space indent, no anchors, no multi-line strings.
 topology: single            # single | monorepo | multi
-# hub: ../my-hub            # multi only: repo that owns .flow/ (specs, plans, tasks, state)
+flow_dir: .flow             # path to the shared flow folder, relative to this config file
 targets:
   - tag: app                # tag used in plan-<tag>.md and in tasks ("[app]")
     path: .                 # or: remote: git@host:org/repo.git
@@ -9,23 +9,40 @@ targets:
     # e2e: "__start-stack-and-run-blackbox-checks__"                # optional, run by flow-review
 tracker: none               # linear | github-issues | none
 workspace: git-worktree     # git-worktree | orca
-stages:                     # chosen at init. review.harness should differ from implement.harness (doctor warns if not)
-  research:  { harness: "", model: "" }
-  plan:      { harness: "", model: "" }
-  implement: { harness: "", model: "" }
-  review:    { harness: "", model: "" }
+fallback: unavailable       # try the next candidate only if the harness or model is unavailable
+capabilities:               # ordered candidates; tasks request capabilities, not models
+  reasoning:
+    candidates:
+      - { harness: auto, model: default }
+      - { harness: auto, model: default }
+  repository_exploration:
+    candidates:
+      - { harness: auto, model: default }
+      - { harness: auto, model: default }
+  implementation:
+    candidates:
+      - { harness: auto, model: default }
+      - { harness: auto, model: default }
+  review:
+    prefer_different_harness: true
+    candidates:
+      - { harness: auto, model: default }
+      - { harness: auto, model: default }
+model_policy:                # optional provider rules; adapters exclude candidates that fail them
+  providers: {}
 limits:
   max_attempts_per_task: 3
   max_task_diff_lines: 300
   max_spec_lines: 60
   max_plan_lines: 60
 compaction:
-  context_window: 200000
+  default_context_window: 200000 # used only when the selected candidate has no context metadata
   trigger_percent: 80
 approvals:                  # finding category -> what happens. Unknown categories BLOCK (fail safe)
   analyze: { block: [contract, coverage, not_included], ask: [scope], log: [format] }
   drift:   { block: [contradicts_spec], ask: [new_behavior], log: [rename, refactor] }
 merge:
   auto: true                # auto-merge a PR that passed every gate, unless it touches a path below
+  required_checks: ["flow-gates / gates"]
   high_risk_paths: ["**/migrations/**", "**/auth/**", ".github/**", "infra/**"]
 # test_globs: ["**/*.test.*", "**/tests/**"]   # what counts as a test file for the test-first check

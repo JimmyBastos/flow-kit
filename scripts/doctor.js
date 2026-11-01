@@ -7,7 +7,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadConfig } from './lib/config.js';
+import { loadConfig, requiredChecks } from './lib/config.js';
 import { SECRET_DENY } from './lib/setup-merge.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -44,7 +44,8 @@ function run(ci) {
   const out = [];
   const add = (name, r) => out.push({ name, ...r });
   const cfgPath = process.env.FLOW_CONFIG ?? 'flow.config.yaml';
-  const { cfg, errors, warnings = [] } = existsSync(cfgPath) ? loadConfig() : { cfg: null, errors: ['flow.config.yaml not found; run /flow-init'] };
+  const hasInlineConfig = Boolean(process.env.FLOW_CONFIG_B64 || process.env.FLOW_CONFIG_JSON);
+  const { cfg, errors, warnings = [] } = hasInlineConfig || existsSync(cfgPath) ? loadConfig() : { cfg: null, errors: ['flow.config.yaml not found; run /flow-init'] };
   add('flow.config.yaml valid', errors.length ? { status: 'fail', detail: errors.join('; ') } : { status: 'ok' });
   if (warnings.length) add('review harness', { status: 'warn', detail: warnings.join('; ') });
   const guard = existsSync('scripts/flow/guard-destructive.js') ? 'scripts/flow/guard-destructive.js' : join(here, 'guard-destructive.js');
@@ -66,7 +67,9 @@ function run(ci) {
   const envPct = process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE;
   add('CLAUDE_AUTOCOMPACT_PCT_OVERRIDE exported', Number(envPct) === cfg.compaction.trigger_percent ? { status: 'ok' } : { status: 'warn', detail: `not exported in this shell (want ${cfg.compaction.trigger_percent}); it only lowers the default of ~77-83%` });
 
-  const { context_window: win, trigger_percent: pct } = cfg.compaction;
+  const contexts = Object.values(cfg.capabilities ?? {}).flatMap((profile) => (profile.candidates ?? []).map((candidate) => candidate.context_window ?? cfg.compaction.default_context_window));
+  const win = contexts.length ? Math.min(...contexts) : cfg.compaction.default_context_window;
+  const { trigger_percent: pct } = cfg.compaction;
   add('Codex compaction limit', existsSync('.codex/config.toml') ? checkCodexToml(readFileSync('.codex/config.toml', 'utf8'), win, pct) : { status: 'fail', detail: 'missing .codex/config.toml' });
   const ov = spawnSync('opencode', ['--version'], { encoding: 'utf8' });
   const major = ov.status === 0 ? parseInt((ov.stdout.match(/(\d+)\./) ?? [])[1], 10) : null;
@@ -77,9 +80,13 @@ function run(ci) {
     add('workspace: orca CLI installed', orca.status === 0 ? { status: 'ok' } : { status: 'warn', detail: 'workspace is "orca" but the orca CLI was not found; /flow-run cannot open worktrees in Orca' });
   }
 
-  const gh = spawnSync('gh', ['api', 'repos/{owner}/{repo}/branches/main/protection', '--jq', '.required_status_checks.contexts'], { encoding: 'utf8' });
-  if (gh.status !== 0) add('branch protection requires the gates check', { status: 'warn', detail: 'cannot verify via gh (not installed, not authenticated, or no protection on main). Without it the CI gates are advisory.' });
-  else add('branch protection requires the gates check', /gates/.test(gh.stdout) ? { status: 'ok' } : { status: 'fail', detail: `required checks: ${gh.stdout.trim()}; add "gates"` });
+  const workflow = existsSync('.github/workflows/flow-gates.yml') ? readFileSync('.github/workflows/flow-gates.yml', 'utf8') : '';
+  const configuredChecks = requiredChecks(cfg);
+  const hubMode = cfg.topology === 'multi' && !process.env.FLOW_TARGET;
+  const ciGateOk = hubMode
+    ? workflow.includes('gates.js docs')
+    : Array.isArray(configuredChecks) && configuredChecks.length > 0 && workflow.includes('check-ci.js') && workflow.includes('merge.js run');
+  add(hubMode ? 'hub document CI' : 'script-based CI merge gate', ciGateOk ? { status: 'ok' } : { status: 'fail', detail: hubMode ? 'install the hub flow-gates workflow' : 'configure merge.required_checks and install check-ci.js before merge.js run' });
   return out;
 }
 

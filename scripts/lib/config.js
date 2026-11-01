@@ -1,22 +1,26 @@
 import { readFileSync } from 'node:fs';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { parse } from './miniyaml.js';
 
 export const DEFAULTS = {
   topology: 'single',
   tracker: 'none',
   workspace: 'git-worktree',
+  flow_dir: '.flow',
+  fallback: 'unavailable',
+  model_policy: { providers: {} },
   limits: { max_attempts_per_task: 3, max_task_diff_lines: 300, max_spec_lines: 60, max_plan_lines: 60 },
-  compaction: { context_window: 200000, trigger_percent: 80 },
+  compaction: { default_context_window: 200000, trigger_percent: 80 },
   approvals: {
     analyze: { block: ['contract', 'coverage', 'not_included'], ask: ['scope'], log: ['format'] },
     drift: { block: ['contradicts_spec'], ask: ['new_behavior'], log: ['rename', 'refactor'] },
   },
-  merge: { auto: true, high_risk_paths: ['**/migrations/**', '**/auth/**', '.github/**', 'infra/**'] },
+  merge: { auto: true, required_checks: ['flow-gates / gates'], high_risk_paths: ['**/migrations/**', '**/auth/**', '.github/**', 'infra/**'] },
   test_globs: ['**/*.test.*', '**/*.spec.*', '**/test/**', '**/tests/**', '**/__tests__/**', '**/test_*.py', '**/*_test.go'],
 };
 
 // Paths an agent must never auto-merge changes to: they are the guardrails themselves.
-export const ALWAYS_HIGH_RISK = ['flow.config.yaml', '.github/**', 'scripts/flow/**', '.flow/rules/**', 'docs/rules/**', '.githooks/**'];
+export const ALWAYS_HIGH_RISK = ['flow.config.yaml', '.github/**', 'scripts/flow/**', '.flow/rules/**', '.flow/decisions/**', 'docs/rules/**', '.githooks/**'];
 
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 function merge(base, over) {
@@ -40,12 +44,38 @@ export function validate(cfg) {
       else tags.add(t.tag);
       if (!t.path && !t.remote) errors.push(`targets[${i}] (${t.tag}) needs path or remote`);
       if (!Array.isArray(t.gates) || t.gates.length === 0) errors.push(`targets[${i}] (${t.tag}) needs at least one gate command`);
+      if (Array.isArray(t.gates) && t.gates.some((gate) => String(gate).includes('__'))) errors.push(`targets[${i}] (${t.tag}) still has placeholder gate commands`);
+      if (t.required_checks !== undefined && (!Array.isArray(t.required_checks) || t.required_checks.some((x) => typeof x !== 'string' || !x.trim()))) errors.push(`targets[${i}] (${t.tag}) required_checks must be a list of check names`);
     });
   }
-  if (cfg.topology === 'multi' && !cfg.hub) errors.push('multi topology requires "hub" (path of the repo that owns .flow/)');
-  for (const stage of ['implement', 'review']) {
-    const s = cfg.stages?.[stage];
-    if (!s?.harness || !s?.model) errors.push(`stages.${stage} needs harness and model (flow-init asks for them)`);
+  if (!cfg.flow_dir || typeof cfg.flow_dir !== 'string') errors.push('flow_dir must point to the directory that contains flow data');
+  if (cfg.fallback !== 'unavailable') errors.push('fallback must be unavailable; task failures do not switch models');
+  if (cfg.capabilities !== undefined) {
+    if (!isObj(cfg.capabilities)) errors.push('capabilities must be a map of capability names to candidate lists');
+    else for (const [name, profile] of Object.entries(cfg.capabilities)) {
+      if (!Array.isArray(profile?.candidates) || profile.candidates.length === 0) errors.push(`capabilities.${name}.candidates must be a non-empty list`);
+      else profile.candidates.forEach((candidate, i) => {
+        if (!candidate.harness) errors.push(`capabilities.${name}.candidates[${i}].harness is required`);
+        if (!candidate.model) errors.push(`capabilities.${name}.candidates[${i}].model is required`);
+        if (candidate.context_window !== undefined && (!Number.isInteger(candidate.context_window) || candidate.context_window < 1)) errors.push(`capabilities.${name}.candidates[${i}].context_window must be a positive integer`);
+        const provider = candidate.provider ?? (String(candidate.model ?? '').includes('/') ? String(candidate.model).split('/')[0] : null);
+        const policy = provider ? cfg.model_policy?.providers?.[provider] : null;
+        if (policy) {
+          const data = candidate.data_policy;
+          if (!isObj(data)) errors.push(`capabilities.${name}.candidates[${i}] needs data_policy for provider ${provider}`);
+          else {
+            if (policy.max_retention_days !== undefined && (!Number.isInteger(data.retention_days) || data.retention_days > policy.max_retention_days)) errors.push(`capabilities.${name}.candidates[${i}] exceeds ${provider} retention policy`);
+            if (policy.allow_training === false && data.trains_on_requests !== false) errors.push(`capabilities.${name}.candidates[${i}] violates ${provider} no-training policy`);
+          }
+        }
+      });
+    }
+  }
+  if (!isObj(cfg.model_policy) || !isObj(cfg.model_policy.providers ?? {})) errors.push('model_policy.providers must be a map of provider ids to data policies');
+  else for (const [provider, policy] of Object.entries(cfg.model_policy.providers ?? {})) {
+    if (!provider || !isObj(policy)) errors.push(`model_policy.providers.${provider} must be a data policy`);
+    if (policy.max_retention_days !== undefined && (!Number.isInteger(policy.max_retention_days) || policy.max_retention_days < 0)) errors.push(`model_policy.providers.${provider}.max_retention_days must be a non-negative integer`);
+    if (policy.allow_training !== undefined && typeof policy.allow_training !== 'boolean') errors.push(`model_policy.providers.${provider}.allow_training must be boolean`);
   }
   const l = cfg.limits;
   for (const k of ['max_attempts_per_task', 'max_task_diff_lines', 'max_spec_lines', 'max_plan_lines']) {
@@ -53,14 +83,17 @@ export function validate(cfg) {
   }
   const { trigger_percent: p } = cfg.compaction ?? {};
   if (!(p >= 50 && p <= 95)) errors.push('compaction.trigger_percent must be between 50 and 95');
+  if (cfg.merge?.required_checks !== undefined && (!Array.isArray(cfg.merge.required_checks) || cfg.merge.required_checks.some((x) => typeof x !== 'string' || !x.trim()))) errors.push('merge.required_checks must be a list of check names');
+  if (cfg.merge?.auto && (!Array.isArray(cfg.merge.required_checks) || cfg.merge.required_checks.length === 0)) errors.push('merge.auto requires at least one merge.required_checks entry');
   return errors;
 }
 
 // Not errors: the config works, but the user should know.
 export function warnings(cfg) {
   const out = [];
-  const imp = cfg.stages?.implement?.harness; const rev = cfg.stages?.review?.harness;
-  if (imp && rev && imp === rev) out.push('review and implement use the same harness; the review runs in a new session');
+  const imp = cfg.capabilities?.implementation?.candidates?.[0]?.harness;
+  const rev = cfg.capabilities?.review?.candidates?.[0]?.harness;
+  if (imp && rev && imp === rev) out.push('review and implementation use the same first-choice harness; an independent review candidate is preferred');
   return out;
 }
 
@@ -68,9 +101,36 @@ export function normalize(raw) {
   return merge(DEFAULTS, raw);
 }
 
-// multi topology: target repos point at the hub's config with FLOW_CONFIG=<hub>/flow.config.yaml
+export function configPath(path = process.env.FLOW_CONFIG ?? 'flow.config.yaml') {
+  return resolve(path);
+}
+
+export function flowDir(cfg, path = process.env.FLOW_CONFIG ?? 'flow.config.yaml') {
+  if (process.env.FLOW_DIR) return resolve(process.env.FLOW_DIR);
+  // Backward compatibility for the old multi-repo variable, which pointed at the hub repo.
+  if (process.env.FLOW_ROOT) return resolve(process.env.FLOW_ROOT, '.flow');
+  const configured = cfg?.flow_dir ?? '.flow';
+  return isAbsolute(configured) ? configured : resolve(dirname(configPath(path)), configured);
+}
+
+export function targetDir(cfg, target, path = process.env.FLOW_CONFIG ?? 'flow.config.yaml') {
+  if (process.env.FLOW_TARGET === target.tag) return resolve(process.env.FLOW_TARGET_PATH ?? '.');
+  const targetPath = target.path ?? '.';
+  return isAbsolute(targetPath) ? targetPath : resolve(dirname(configPath(path)), targetPath);
+}
+
+export function requiredChecks(cfg, targetTag = process.env.FLOW_TARGET) {
+  const target = targetTag ? cfg.targets?.find((item) => item.tag === targetTag) : null;
+  return target?.required_checks ?? cfg.merge?.required_checks ?? [];
+}
+
+// In multi topology, targets share the hub config. FLOW_TARGET makes a target worktree run its own gates at ".".
 export function loadConfig(path = process.env.FLOW_CONFIG ?? 'flow.config.yaml') {
-  const cfg = normalize(parse(readFileSync(path, 'utf8')));
+  const absolute = configPath(path);
+  const serialized = process.env.FLOW_CONFIG_B64
+    ? Buffer.from(process.env.FLOW_CONFIG_B64, 'base64').toString('utf8')
+    : process.env.FLOW_CONFIG_JSON ?? readFileSync(absolute, 'utf8');
+  const cfg = normalize(serialized.trimStart().startsWith('{') ? JSON.parse(serialized) : parse(serialized));
   const errors = validate(cfg);
-  return { cfg, errors, warnings: warnings(cfg) };
+  return { cfg, errors, warnings: warnings(cfg), path: absolute, flowDir: flowDir(cfg, absolute) };
 }

@@ -6,8 +6,10 @@
 //   node flow-state.js status <slug>                        derive feature status from tasks.md + merged states
 // A task branch writes ONLY tasks/<id>/{state,questions}.md. tasks.md is read-only during runs.
 import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from './lib/miniyaml.js';
+import { flowDir } from './lib/config.js';
 
 const STATUSES = ['todo', 'in_progress', 'blocked', 'done'];
 const FIELDS = ['task', 'status', 'branch', 'last_commit', 'steps_done', 'next_step', 'next_harness', 'attempts', 'questions'];
@@ -56,9 +58,9 @@ export function deriveStatus(tasks, states) {
   };
 }
 
-// multi topology: the agent runs in a target worktree but state lives in the hub -> FLOW_ROOT=<hub path>
-const ROOT = process.env.FLOW_ROOT ?? '.';
-const dir = (slug, id) => `${ROOT}/.flow/active/${slug}/tasks/${id}`;
+// FLOW_DIR points at the shared data directory. FLOW_ROOT remains supported for older setups.
+const ROOT = flowDir(null);
+const dir = (slug, id) => join(ROOT, 'active', slug, 'tasks', id);
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [cmd, slug, id, ...rest] = process.argv.slice(2);
@@ -86,11 +88,11 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const cur = existsSync(f) ? parseState(readFileSync(f, 'utf8')) : { task: id };
     writeFileSync(f, serializeState({ ...cur, status: 'blocked', next_step: cur.next_step ?? 'answer questions.md', questions: 'questions.md' }));
   } else if (cmd === 'status') {
-    const base = `${ROOT}/.flow/active/${slug}`;
-    const tasks = parseTasks(readFileSync(`${base}/tasks.md`, 'utf8'));
+    const base = join(ROOT, 'active', slug);
+    const tasks = parseTasks(readFileSync(join(base, 'tasks.md'), 'utf8'));
     const states = {};
-    const td = `${base}/tasks`;
-    if (existsSync(td)) for (const d of readdirSync(td)) { const f = `${td}/${d}/state.md`; if (existsSync(f)) states[d] = parseState(readFileSync(f, 'utf8')); }
+    const td = join(base, 'tasks');
+    if (existsSync(td)) for (const d of readdirSync(td)) { const f = join(td, d, 'state.md'); if (existsSync(f)) states[d] = parseState(readFileSync(f, 'utf8')); }
     console.log(JSON.stringify(deriveStatus(tasks, states), null, 2));
   } else { console.error('usage: flow-state.js write|read|ask|status'); process.exit(2); }
 }

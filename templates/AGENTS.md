@@ -1,10 +1,10 @@
 # AGENTS.md
 
-This project uses flow-kit. Config: `flow.config.yaml`. Rules: `docs/rules/`. Work items: `.flow/`.
+This project uses flow-kit. Config: `flow.config.yaml`. Rules: `docs/rules/`. `flow_dir` in the config names the shared work folder; its default is `.flow/`.
 `CLAUDE.md` only imports this file; edit this one.
 
 ## Operating rules
-- One task per session. State lives in the repo (`.flow/active/<slug>/tasks/<id>/state.md`), never in the session.
+- One task per session. State lives under `<flow_dir>/active/<slug>/tasks/<id>/state.md`, never in the session.
 - First action in any fresh or compacted session on a `flow/*` branch: run `/flow-resume`.
 - Commit and update `state.md` after every step, not at the end.
 - Machine checks first (`scripts/flow/gates.js`), AI judgment second.
@@ -56,7 +56,7 @@ Everything you write is read by someone who has no context and little time, and 
 | Merge of a high-risk pull request | CI merge job | yes |
 
 ## Layout
-`.flow/backlog.md` | `.flow/active/<slug>/{research,spec,plan-<tag>,tasks,drift}.md` | `.flow/active/<slug>/tasks/<id>/{state,questions}.md + verdict.json` | `.flow/done/<slug>/`
+`<flow_dir>/backlog.md` | `<flow_dir>/active/<slug>/{research,spec,plan-<tag>,tasks,drift}.md` | `<flow_dir>/decisions/` | `<flow_dir>/active/<slug>/tasks/<id>/{state,questions}.md + verdict.json` | `<flow_dir>/done/<slug>/`
 
 ## Commands
 Gates, test-first check, size caps: `node scripts/flow/gates.js run|testfirst|diff|size`. Health: `node scripts/flow/doctor.js`.

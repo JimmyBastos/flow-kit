@@ -8,8 +8,9 @@
 // Exit codes: 0 ok, 1 gate failed, 3 config error.
 import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadConfig } from './lib/config.js';
+import { flowDir, loadConfig, targetDir } from './lib/config.js';
 import { matchesAny } from './lib/glob.js';
 
 export function countLines(text) { return text.split('\n').filter((l, i, a) => !(i === a.length - 1 && l === '')).length; }
@@ -44,6 +45,21 @@ export function checkText(files, maxWords = MAX_SENTENCE_WORDS) {
     });
   }
   return problems;
+}
+
+export function collectFlowDocuments(root) {
+  const files = [];
+  const addMarkdown = (dir) => {
+    if (!existsSync(dir)) return;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) addMarkdown(path);
+      else if (entry.isFile() && entry.name.endsWith('.md')) files.push({ name: entry.name, text: readFileSync(path, 'utf8'), path });
+    }
+  };
+  addMarkdown(join(root, 'active'));
+  addMarkdown(join(root, 'decisions'));
+  return files;
 }
 
 // numstat: [{file, added, deleted}] -> excludes .flow/ and lockfiles (not reviewable code)
@@ -97,17 +113,21 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const t = cfg.targets.find((x) => x.tag === arg('--target', cfg.targets[0].tag));
     if (!t) { console.error('unknown target'); process.exit(3); }
     const commands = [...t.gates, ...(rest.includes('--e2e') && t.e2e ? [t.e2e] : [])];
-    out = runGates(commands, t.path ?? '.');
+    out = runGates(commands, targetDir(cfg, t));
   } else if (cmd === 'size') {
-    const dir = `${cfg.hub ?? '.'}/.flow/active/${arg('--feature')}`;
-    const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.md')).map((name) => ({ name, text: readFileSync(`${dir}/${name}`, 'utf8') })) : [];
+    const dir = join(flowDir(cfg), 'active', arg('--feature'));
+    const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.md')).map((name) => ({ name, text: readFileSync(join(dir, name), 'utf8') })) : [];
     const problems = checkSizeCaps(files, cfg.limits);
     out = { ok: problems.length === 0, problems };
   } else if (cmd === 'text') {
-    const dir = `${cfg.hub ?? '.'}/.flow/active/${arg('--feature')}`;
-    const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.md') && !['analyze.md', 'drift.md'].includes(f)).map((name) => ({ name, text: readFileSync(`${dir}/${name}`, 'utf8') })) : [];
+    const dir = join(flowDir(cfg), 'active', arg('--feature'));
+    const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.md') && !['analyze.md', 'drift.md'].includes(f)).map((name) => ({ name, text: readFileSync(join(dir, name), 'utf8') })) : [];
     const problems = checkText(files);
     out = { ok: problems.length === 0, problems };
+  } else if (cmd === 'docs') {
+    const files = collectFlowDocuments(flowDir(cfg));
+    const size = checkSizeCaps(files, cfg.limits);
+    out = { ok: size.length === 0, size };
   } else if (cmd === 'diff') {
     const base = arg('--base', 'origin/main');
     const numstat = git(['diff', '--numstat', `${base}...HEAD`]).split('\n').filter(Boolean).map((l) => { const [a, d, f] = l.split('\t'); return { file: f, added: Number(a) || 0, deleted: Number(d) || 0 }; });

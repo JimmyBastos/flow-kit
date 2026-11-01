@@ -1,6 +1,6 @@
 # Installed by flow-setup as .github/workflows/flow-gates.yml.
 # These checks run on EVERY pull request, whether or not an agent ran them locally.
-# Mark "gates" as a required status check in branch protection (flow-init explains how; doctor verifies it).
+# Flow-managed merges check named CI results with check-ci.js; GitHub branch rules are optional.
 name: flow-gates
 on:
   pull_request:
@@ -18,10 +18,6 @@ jobs:
         with: { fetch-depth: 0 }
       - uses: actions/setup-node@v4
         with: { node-version: 22 }   # runs the flow scripts; not your project's toolchain
-      # multi topology only: this repo is a target, the config lives in the hub. Uncomment and set the hub repo:
-      # - uses: actions/checkout@v4
-      #   with: { repository: org/hub, path: .flow-hub, token: "${{ secrets.HUB_READ_TOKEN }}" }
-      # and add  env: { FLOW_CONFIG: .flow-hub/flow.config.yaml }  to the steps below.
       # >>> flow-init inserts your stack's setup steps here (python, go, jdk, pnpm install, docker, ...)
       - name: Validate flow.config.yaml
         run: node scripts/flow/doctor.js --ci
@@ -44,6 +40,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      checks: read
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -51,6 +48,9 @@ jobs:
         with: { node-version: 22 }
       # Auto-merges unless the diff touches merge.high_risk_paths (or the guardrails themselves);
       # in that case labels the PR needs-human-merge and leaves it for a person.
+      - name: Check required CI results
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: node scripts/flow/check-ci.js "${{ github.event.pull_request.number }}" --wait-seconds 1800
       - name: Merge by risk
         env: { GH_TOKEN: "${{ github.token }}" }
         run: node scripts/flow/merge.js run "${{ github.event.pull_request.number }}" || [ $? -eq 10 ]

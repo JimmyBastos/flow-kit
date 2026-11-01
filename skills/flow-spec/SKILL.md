@@ -5,7 +5,7 @@ description: Write the feature spec (what and why, about 60 lines) from research
 
 # flow-spec
 
-Input: `.flow/active/<slug>/research.md`. Output: `.flow/active/<slug>/spec.md` from `templates/spec.md`.
+Input: `<flow_dir>/active/<slug>/research.md`. Output: `<flow_dir>/active/<slug>/spec.md` from `templates/spec.md`.
 
 ## Procedure
 1. Read `research.md`, `AGENTS.md`, `docs/rules/index.md`. If `research.md` has open questions that affect scope, go back to `/flow-research`.

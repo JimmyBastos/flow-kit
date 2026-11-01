@@ -1,0 +1,58 @@
+# Installed in a target repo. FLOW_CONFIG_B64 is a generated CI-only projection from the hub config.
+name: flow-gates
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    env:
+      FLOW_CONFIG_B64: __FLOW_CONFIG_B64__
+      FLOW_DIR: .flow
+      FLOW_TARGET: __FLOW_TARGET__
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      # flow-init inserts this target's package-manager setup and dependency install.
+      # >>> flow-init inserts stack setup steps here
+      - name: Validate flow configuration
+        run: node scripts/flow/doctor.js --ci
+      - name: Run this target's gates
+        run: node scripts/flow/gates.js run --target "$FLOW_TARGET"
+      - name: Check task diff size
+        if: github.event_name == 'pull_request'
+        run: node scripts/flow/gates.js diff --base "origin/${{ github.base_ref }}"
+      - name: Verify task review verdict
+        if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'flow/')
+        run: node scripts/flow/verdict.js ci "origin/${{ github.base_ref }}"
+
+  auto-merge:
+    needs: gates
+    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'flow/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+    env:
+      FLOW_CONFIG_B64: __FLOW_CONFIG_B64__
+      FLOW_DIR: .flow
+      FLOW_TARGET: __FLOW_TARGET__
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Check configured CI results
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: node scripts/flow/check-ci.js "${{ github.event.pull_request.number }}" --wait-seconds 1800
+      - name: Merge by risk
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: node scripts/flow/merge.js run "${{ github.event.pull_request.number }}" || [ $? -eq 10 ]

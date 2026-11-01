@@ -21,6 +21,28 @@ test('claude settings: merge is idempotent and preserves existing config', () =>
   assert.ok(once.hooks.PreCompact && once.hooks.SessionStart);
 });
 
+test('flow-setup installs a hub workflow for multi topology', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'flow-hub-'));
+  const sh = (cmd, args, env = {}) => spawnSync(cmd, args, { cwd: dir, encoding: 'utf8', env: { ...process.env, ...env } });
+  sh('git', ['init', '-q', '-b', 'main']);
+  mkdirSync(join(dir, '.agents/skills'), { recursive: true });
+  writeFileSync(join(dir, 'flow.config.yaml'), `topology: multi
+flow_dir: .flow
+targets:
+  - tag: api
+    path: ../api
+    gates: ["node --test"]
+tracker: none
+`);
+  const setup = sh('node', [join(kit, 'scripts/flow-setup.js')]);
+  assert.equal(setup.status, 0, setup.stderr);
+  const workflow = readFileSync(join(dir, '.github/workflows/flow-gates.yml'), 'utf8');
+  assert.match(workflow, /node scripts\/flow\/gates\.js docs/);
+  const doctor = sh('node', ['scripts/flow/doctor.js']);
+  assert.equal(doctor.status, 0, doctor.stdout + doctor.stderr);
+  assert.match(doctor.stdout, /PASS {2}hub document CI/);
+});
+
 test('codex toml: sets token limit (not percent) and replaces existing values', () => {
   const t = mergeCodexToml('model = "gpt"\nmodel_auto_compact_token_limit = 1\n', 200000, 80);
   assert.match(t, /model_context_window = 200000/);
@@ -66,13 +88,22 @@ targets:
   - tag: app
     path: .
     gates: ["node -e 0"]
-stages:
-  implement: { harness: claude-code, model: opus }
-  review: { harness: codex, model: gpt }
+capabilities:
+  implementation:
+    candidates:
+      - harness: claude-code
+        model: opus
+        context_window: 200000
+  review:
+    prefer_different_harness: true
+    candidates:
+      - harness: codex
+        model: gpt
+        context_window: 200000
 `);
   const setup = sh('node', [join(kit, 'scripts/flow-setup.js')]);
   assert.equal(setup.status, 0, setup.stderr);
-  for (const f of ['scripts/flow/guard-destructive.js', 'scripts/flow/lib/miniyaml.js', '.githooks/pre-push', '.github/workflows/flow-gates.yml', '.claude/settings.json', '.codex/config.toml', 'opencode.json', 'CLAUDE.md']) {
+  for (const f of ['scripts/flow/guard-destructive.js', 'scripts/flow/check-ci.js', 'scripts/flow/capabilities.js', 'scripts/flow/lib/miniyaml.js', 'scripts/flow/adapters/harness.md', '.githooks/pre-push', '.github/workflows/flow-gates.yml', '.claude/settings.json', '.codex/config.toml', 'opencode.json', 'CLAUDE.md']) {
     assert.ok(existsSync(join(dir, f)), `missing ${f}`);
   }
   assert.ok((statSync(join(dir, '.githooks/pre-push')).mode & 0o111) !== 0);

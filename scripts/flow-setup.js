@@ -19,13 +19,17 @@ const writeJson = (p, o) => { mkdirSync(dirname(p), { recursive: true }); writeF
 
 const { cfg, errors } = loadConfig();
 if (errors.length) { console.error(`flow.config.yaml is invalid:\n  ${errors.join('\n  ')}`); process.exit(3); }
-const { context_window: win, trigger_percent: pct } = cfg.compaction;
+const candidates = Object.values(cfg.capabilities ?? {}).flatMap((profile) => profile.candidates ?? []);
+const windows = candidates.map((candidate) => candidate.context_window ?? cfg.compaction.default_context_window);
+const win = windows.length ? Math.min(...windows) : cfg.compaction.default_context_window;
+const { trigger_percent: pct } = cfg.compaction;
 
 // 1. helper scripts (Node, no deps) -> scripts/flow/
 act('copy scripts to scripts/flow/', () => {
   mkdirSync('scripts/flow', { recursive: true });
-  for (const f of ['guard-destructive.js', 'pre-push.js', 'flow-state.js', 'gates.js', 'verdict.js', 'merge.js', 'doctor.js', 'checkpoint.js', 'session-start.js']) copyFileSync(join(kit, 'scripts', f), join('scripts/flow', f));
+  for (const f of ['guard-destructive.js', 'pre-push.js', 'flow-state.js', 'gates.js', 'verdict.js', 'merge.js', 'check-ci.js', 'doctor.js', 'checkpoint.js', 'session-start.js', 'capabilities.js']) copyFileSync(join(kit, 'scripts', f), join('scripts/flow', f));
   cpSync(join(kit, 'scripts/lib'), 'scripts/flow/lib', { recursive: true });
+  cpSync(join(kit, 'adapters'), 'scripts/flow/adapters', { recursive: true });
   writeFileSync('scripts/flow/package.json', '{ "type": "module" }\n');
 });
 
@@ -39,7 +43,24 @@ act('install .githooks/pre-push and set core.hooksPath', () => {
 // 3. CI: the gates run on every PR whether or not an agent ran them locally
 act('install .github/workflows/flow-gates.yml', () => {
   mkdirSync('.github/workflows', { recursive: true });
-  copyFileSync(join(kit, 'templates/ci/github.yml'), '.github/workflows/flow-gates.yml');
+  let workflow;
+  if (cfg.topology !== 'multi') {
+    workflow = readFileSync(join(kit, 'templates/ci/github.yml'), 'utf8');
+  } else if (process.env.FLOW_TARGET) {
+    const target = cfg.targets.find((item) => item.tag === process.env.FLOW_TARGET);
+    if (!target) throw new Error(`FLOW_TARGET is not configured: ${process.env.FLOW_TARGET}`);
+    const ciConfig = {
+      topology: 'single', flow_dir: '.flow', targets: [{ ...target, path: '.', required_checks: target.required_checks ?? cfg.merge.required_checks }],
+      tracker: 'none', workspace: cfg.workspace, fallback: cfg.fallback, limits: cfg.limits,
+      compaction: cfg.compaction, approvals: cfg.approvals, merge: cfg.merge, test_globs: cfg.test_globs,
+    };
+    workflow = readFileSync(join(kit, 'templates/ci/github-multi.yml'), 'utf8')
+      .replaceAll('__FLOW_TARGET__', target.tag)
+      .replaceAll('__FLOW_CONFIG_B64__', Buffer.from(JSON.stringify(ciConfig)).toString('base64'));
+  } else {
+    workflow = readFileSync(join(kit, 'templates/ci/github-hub.yml'), 'utf8');
+  }
+  writeFileSync('.github/workflows/flow-gates.yml', workflow);
 });
 
 // 4. harness config

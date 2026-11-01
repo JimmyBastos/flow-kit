@@ -34,8 +34,17 @@ function prepare(kind) {
     const hub = makeRepo('multi/hub', root, 'hub');
     const code = makeRepo('multi/api', root, 'api');
     makeRepo('multi/app', root, 'app');
-    const env = { FLOW_ROOT: hub, FLOW_CONFIG: join(hub, 'flow.config.yaml') };
+    const env = { FLOW_DIR: join(hub, '.flow'), FLOW_CONFIG: join(hub, 'flow.config.yaml'), FLOW_TARGET: 'api' };
     assert.equal(setup(code, env).status, 0);
+    const workflow = readFileSync(join(code, '.github/workflows/flow-gates.yml'), 'utf8');
+    assert.match(workflow, /FLOW_TARGET: api/);
+    assert.match(workflow, /FLOW_CONFIG_B64/);
+    assert.doesNotMatch(workflow, /FLOW_HUB_READ_TOKEN|actions\/checkout@v4\n\s+with:\n\s+repository:/);
+    const configB64 = workflow.match(/FLOW_CONFIG_B64: ([A-Za-z0-9+/=]+)/)?.[1];
+    assert.ok(configB64, 'target workflow embeds its CI-only config projection');
+    const ciEnv = { FLOW_CONFIG_B64: configB64, FLOW_DIR: join(code, '.flow'), FLOW_TARGET: 'api' };
+    assert.equal(flow(code, 'doctor.js', ['--ci'], ciEnv).status, 0);
+    assert.equal(flow(code, 'gates.js', ['run', '--target', 'api'], ciEnv).status, 0);
     git(code, 'add', '-A'); git(code, 'commit', '-qm', 'chore: flow setup'); bootstrapPush(code);
     commit(hub, { '.flow/active/f/tasks.md': TASKS.replaceAll('TAG', 'api') }, 'docs(flow): tasks f');
     return { kind, code, hub, env, tag: 'api', prod: 'src/rest.js', prodBad: 'export const rest = (x) => x;\n', test: 'tests/rest.test.js', newTest: 'tests/rest2.test.js', newProd: 'src/rest2.js' };
@@ -69,7 +78,7 @@ for (const kind of ['single', 'monorepo', 'multi']) {
     assert.match(JSON.parse(g.stdout).results[0].output, /ℹ pass 2/, 'gate passed without running the tests');
     assert.equal(flow(c.code, 'gates.js', ['diff', '--base', 'origin/main'], c.env).status, 0);
 
-    // state is written through FLOW_ROOT (hub in multi), never in tasks.md
+    // shared state is written through FLOW_DIR, never in tasks.md
     const w = flow(c.code, 'flow-state.js', ['write', 'f', '1', 'status=in_progress', 'branch=flow/f/1', 'next_step=review', 'next_harness=codex'], c.env);
     assert.equal(w.status, 0, w.out);
     assert.ok(existsSync(join(c.hub, '.flow/active/f/tasks/1/state.md')));
