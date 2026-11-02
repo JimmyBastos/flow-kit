@@ -10,8 +10,11 @@ capabilities:
     candidates:
       - harness: claude-code
         model: opus
-  repository_exploration:
+  research:
     candidates:
+      - harness: claude-code
+        model: opus
+    subagent_candidates:
       - harness: claude-code
         model: haiku
   implementation:

@@ -53,7 +53,9 @@ test('config template parses; unfilled it fails validation exactly where init mu
   assert.match(errs, /placeholder gate commands/);
   assert.equal(cfg.capabilities.planning.candidates[0].harness, 'auto');
   assert.equal(cfg.capabilities.implementation.retry_candidates[0].model, 'default');
-  assert.equal(cfg.capabilities.repository_exploration.candidates[0].model, 'default');
+  assert.equal(cfg.capabilities.research.candidates[0].model, 'default');
+  assert.equal(cfg.capabilities.research.subagent_candidates[0].harness, 'auto');
+  assert.equal(cfg.capabilities.repository_exploration, undefined);
   assert.doesNotMatch(errs, /topology|tracker|limits/);
   assert.doesNotMatch(warnings(cfg).join('\n'), /no longer used/, 'the template uses no removed keys');
 });

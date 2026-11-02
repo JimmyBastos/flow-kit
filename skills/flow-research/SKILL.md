@@ -7,7 +7,7 @@ description: Gather context for a new idea and interview the user in rounds unti
 
 Input: a slug and a rough idea. Output: `<flow_dir>/active/<slug>/research.md` (template: `templates/research.md`), or a line in `<flow_dir>/backlog.md` if the idea is real but not now.
 
-Use the `planning` capability to lead the interview. Use `repository_exploration` to inspect code, rules, decisions, and prior features. The config selects harness and model candidates for each capability.
+Use the `research` capability to lead the interview and the investigation. Hand code reading to research subagents (`scripts/flow/adapters/harness.md`, Subagents): one per repo or question. The config selects harness and model candidates.
 
 ## Procedure
 1. **Look before asking.** Search the repos in `flow.config.yaml` for existing code, rules, decisions in `<flow_dir>/decisions/`, tracker issues and prior features (`<flow_dir>/done/`) that touch the idea. Note findings with file paths. Never ask a question the code or docs already answer.

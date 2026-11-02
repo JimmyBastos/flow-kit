@@ -4,7 +4,8 @@
     "detect_args": ["--version"],
     "defaults": {
       "planning": { "model": "opus" },
-      "repository_exploration": { "model": "haiku" },
+      "research": { "model": "opus" },
+      "research.subagent": { "model": "haiku" },
       "implementation": { "model": "sonnet" },
       "implementation.retry": { "model": "opus" },
       "review": { "model": "opus" }

@@ -117,8 +117,9 @@ fallback: unavailable       # only fall back when a harness or model is unavaila
 capabilities:
   planning:
     candidates: [{ harness: auto, model: default }, { harness: auto, model: default }]
-  repository_exploration:
-    candidates: [{ harness: auto, model: default }, { harness: auto, model: default }]
+  research:
+    candidates: [{ harness: auto, model: default }]
+    subagent_candidates: [{ harness: auto, model: default }]
   implementation:
     candidates: [{ harness: auto, model: default }, { harness: auto, model: default }]
     retry_candidates: [{ harness: auto, model: default }]
@@ -146,12 +147,12 @@ Capabilities are independent of skills. A skill requests a capability; the confi
 
 | Capability | Used for | Claude Code default |
 |---|---|---|
-| `planning` | research, spec, plans, analyze, drift | opus |
-| `repository_exploration` | read-only code search | haiku |
+| `planning` | spec, plans, tasks, analyze, drift | opus |
+| `research` | leads investigation; subagents do read-only code search | opus; haiku subagents |
 | `implementation` | one task per session | sonnet; opus on retry |
 | `review` | independent diff review | opus |
 
-`retry_candidates` are selected after a failed review, so a retry does not repeat the same model by accident. They are declared in the config; the base candidates stay as the availability fallback. Adapters report availability, model context, and known data policies. Project policy can exclude candidates that retain or train on submitted data.
+`retry_candidates` are selected after a failed review, so a retry does not repeat the same model by accident. `subagent_candidates` are the smaller models a leading session gives read-only searches to, in the same harness. Both are declared in the config; the base candidates stay as the availability fallback. Adapters report availability, model context, and known data policies. Project policy can exclude candidates that retain or train on submitted data.
 
 The starter config uses `auto/default` candidates. It detects an installed harness and uses that adapter's capability default. Projects can replace the defaults with exact model candidates.
 

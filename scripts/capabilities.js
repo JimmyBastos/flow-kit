@@ -29,18 +29,22 @@ export function resolveDefaultModel(candidate, capability, registry = {}) {
 }
 
 // Declared variants come first; the base candidates stay as the availability fallback.
-export const VARIANT_LISTS = { retry: 'retry_candidates' };
+// retry: the model for a new attempt after a failed review.
+// subagent: the smaller model an orchestrating session gives read-only work to (same harness).
+export const VARIANT_LISTS = { retry: 'retry_candidates', subagent: 'subagent_candidates' };
 
-export function candidatesFor(profile, { retry = false } = {}) {
+export function candidatesFor(profile, { retry = false, subagent = false } = {}) {
   const base = profile?.candidates ?? [];
-  const variant = retry && profile?.retry_candidates?.length ? 'retry' : null;
+  const variant = retry && profile?.retry_candidates?.length ? 'retry'
+    : subagent && profile?.subagent_candidates?.length ? 'subagent'
+    : null;
   if (!variant) return base;
   return [...profile[VARIANT_LISTS[variant]].map((candidate) => ({ ...candidate, variant })), ...base];
 }
 
 export function selectCandidate(profile, options = {}) {
-  const { availableHarnesses = null, unavailableModels = [], preferDifferentHarness = profile?.prefer_different_harness === true, usedHarness = null, modelPolicy = {}, retry = false } = options;
-  const candidates = candidatesFor(profile, { retry });
+  const { availableHarnesses = null, unavailableModels = [], preferDifferentHarness = profile?.prefer_different_harness === true, usedHarness = null, modelPolicy = {}, retry = false, subagent = false } = options;
+  const candidates = candidatesFor(profile, { retry, subagent });
   const unavailable = new Set(unavailableModels);
   const availableIds = availableHarnesses ?? [...new Set(candidates.filter((candidate) => candidate.harness !== 'auto').map((candidate) => candidate.harness))];
   const expanded = candidates.flatMap((candidate) => candidate.harness === 'auto'
@@ -72,7 +76,7 @@ export function candidateAllowed(candidate, modelPolicy = {}) {
 function main(args) {
   const [cmd, capability, ...rest] = args;
   if (cmd !== 'select' || !capability) {
-    console.error('usage: node capabilities.js select <capability> [--available-harness <id>] [--unavailable <harness/model>] [--used-harness <id>] [--retry]');
+    console.error('usage: node capabilities.js select <capability> [--available-harness <id>] [--unavailable <harness/model>] [--used-harness <id>] [--retry] [--subagent]');
     process.exit(2);
   }
   const { cfg, errors } = loadConfig();
@@ -93,6 +97,7 @@ function main(args) {
     usedHarness: values('--used-harness')[0] ?? null,
     modelPolicy: cfg.model_policy,
     retry: rest.includes('--retry'),
+    subagent: rest.includes('--subagent'),
   });
   if (!selected) {
     console.error(`no available candidate for capability: ${capability}`);

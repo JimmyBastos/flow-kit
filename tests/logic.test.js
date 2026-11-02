@@ -156,9 +156,9 @@ test('capabilities: auto/default candidates use installed harness adapters', () 
   assert.deepEqual(harnesses, ['opencode']);
   const profile = { candidates: [{ harness: 'auto', model: 'default' }, { harness: 'auto', model: 'default' }] };
   assert.deepEqual(selectCandidate(profile, { availableHarnesses: harnesses }), { harness: 'opencode', model: 'default' });
-  assert.deepEqual(resolveDefaultModel({ harness: 'claude-code', model: 'default' }, 'repository_exploration', {
-    'claude-code': { defaults: { repository_exploration: { model: 'haiku' } } },
-  }), { harness: 'claude-code', model: 'haiku' });
+  assert.deepEqual(resolveDefaultModel({ harness: 'claude-code', model: 'default' }, 'research', {
+    'claude-code': { defaults: { research: { model: 'opus' } } },
+  }), { harness: 'claude-code', model: 'opus' });
 });
 
 test('capabilities: retry variants are declared, ordered first, and fall back to base candidates', () => {
@@ -176,13 +176,31 @@ test('capabilities: retry variants are declared, ordered first, and fall back to
   assert.equal(resolveDefaultModel({ harness: 'claude-code', model: 'default', variant: 'other' }, 'implementation', registry).model, 'sonnet');
 });
 
+test('capabilities: research subagents use the smaller model, in the leader\'s harness, with the leader as fallback', () => {
+  const profile = {
+    candidates: [{ harness: 'claude-code', model: 'opus' }, { harness: 'opencode', model: 'big' }],
+    subagent_candidates: [{ harness: 'claude-code', model: 'haiku' }, { harness: 'opencode', model: 'small' }],
+  };
+  const pick = (opts) => selectCandidate(profile, opts);
+  assert.equal(pick({ availableHarnesses: ['claude-code', 'opencode'] }).model, 'opus', 'without --subagent the leader is chosen');
+  assert.deepEqual(pick({ availableHarnesses: ['claude-code'], subagent: true }), { harness: 'claude-code', model: 'haiku', variant: 'subagent' });
+  assert.equal(pick({ availableHarnesses: ['opencode'], subagent: true }).model, 'small', 'stays in the leader\'s harness');
+  assert.equal(pick({ availableHarnesses: ['claude-code'], subagent: true, unavailableModels: ['claude-code/haiku'] }).model, 'opus', 'falls back to the leader model');
+  assert.equal(pick({ availableHarnesses: ['claude-code'], subagent: true, retry: true }).variant, 'subagent', 'research has no retry list');
+  const registry = { 'claude-code': { defaults: { research: { model: 'opus' }, 'research.subagent': { model: 'haiku' } } } };
+  const auto = selectCandidate({ candidates: [{ harness: 'auto', model: 'default' }], subagent_candidates: [{ harness: 'auto', model: 'default' }] }, { availableHarnesses: ['claude-code'], subagent: true });
+  assert.equal(resolveDefaultModel(auto, 'research', registry).model, 'haiku');
+});
+
 test('config: variant candidate lists are validated like base candidates', () => {
   const cfg = goodCfg();
   cfg.capabilities.implementation.retry_candidates = [{ harness: 'codex' }];
   cfg.capabilities.review.retry_candidates = [];
+  cfg.capabilities.planning.subagent_candidates = [{ model: 'haiku' }];
   const errs = validate(cfg).join('\n');
   assert.match(errs, /implementation\.retry_candidates\[0\]\.model is required/);
   assert.match(errs, /review\.retry_candidates must be a non-empty list/);
+  assert.match(errs, /planning\.subagent_candidates\[0\]\.harness is required/);
 });
 
 test('config: keys from older configs still parse and are reported as unused', () => {
@@ -192,9 +210,11 @@ test('config: keys from older configs still parse and are reported as unused', (
   cfg.approvals = {};
   cfg.capabilities.review.high_risk_candidates = [{ harness: 'codex', model: 'gpt' }];
   cfg.capabilities.planning.candidates[0].context_window = 1000000;
+  cfg.capabilities.repository_exploration = { candidates: [{ harness: 'claude-code', model: 'haiku' }] };
+  cfg.capabilities.utility = { candidates: [{ harness: 'claude-code', model: 'haiku' }] };
   assert.deepEqual(validate(cfg), []);
   const w = warnings(cfg).join('\n');
-  for (const key of ['compaction', 'approvals', 'review.high_risk_candidates', 'planning: context_window']) assert.match(w, new RegExp(key.replace('.', '\\.')));
+  for (const key of ['compaction', 'approvals', 'review.high_risk_candidates', 'planning: context_window', 'repository_exploration', 'utility']) assert.match(w, new RegExp(key.replace('.', '\\.')));
 });
 
 test('CI gate: every configured check must exist and pass', () => {

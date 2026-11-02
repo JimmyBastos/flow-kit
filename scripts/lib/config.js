@@ -26,8 +26,9 @@ function merge(base, over) {
   return out;
 }
 
-// A capability lists base candidates plus an optional variant chosen after a failed review.
-export const CANDIDATE_LISTS = ['candidates', 'retry_candidates'];
+// A capability lists base candidates plus optional variants: retry (after a failed review)
+// and subagent (smaller models for read-only work handed out by an orchestrating session).
+export const CANDIDATE_LISTS = ['candidates', 'retry_candidates', 'subagent_candidates'];
 
 // Keys from older configs. They still parse, but nothing reads them.
 const IGNORED_KEYS = ['compaction', 'approvals'];
@@ -99,6 +100,8 @@ export function warnings(cfg) {
   const rev = cfg.capabilities?.review?.candidates?.[0]?.harness;
   if (imp && rev && imp === rev) out.push('review and implementation use the same first-choice harness; an independent review candidate is preferred');
   for (const key of IGNORED_KEYS) if (cfg[key] !== undefined) out.push(`${key} is no longer used; remove it from flow.config.yaml`);
+  if (cfg.capabilities?.repository_exploration) out.push('capabilities.repository_exploration is no longer used: rename it to research and move its small models to research.subagent_candidates');
+  if (cfg.capabilities?.utility) out.push('capabilities.utility is no longer used; remove it');
   for (const [name, profile] of Object.entries(cfg.capabilities ?? {})) {
     for (const list of IGNORED_LISTS) if (profile?.[list] !== undefined) out.push(`capabilities.${name}.${list} is no longer used; remove it`);
     if (CANDIDATE_LISTS.some((list) => (profile?.[list] ?? []).some?.((candidate) => candidate?.context_window !== undefined))) out.push(`capabilities.${name}: context_window is no longer used; remove it`);
