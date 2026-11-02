@@ -11,7 +11,7 @@ tracker: none               # linear | github-issues | none
 workspace: git-worktree     # git-worktree | orca
 fallback: unavailable       # try the next candidate only if the harness or model is unavailable
 capabilities:               # ordered candidates; tasks request capabilities, not models
-  planning:                 # spec, plans, tasks, analyze, drift classification
+  planning:                 # intake, spec, plans, tasks, drift classification
     candidates:
       - { harness: auto, model: default }
       - { harness: auto, model: default }

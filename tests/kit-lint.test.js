@@ -9,9 +9,9 @@ import { normalize, validate, warnings } from '../scripts/lib/config.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const skills = readdirSync(join(root, 'skills'));
-const EXPECTED = ['flow-init', 'flow-research', 'flow-spec', 'flow-plan', 'flow-tasks', 'flow-analyze', 'flow-implement', 'flow-resume', 'flow-run', 'flow-review', 'flow-audit', 'flow-drift', 'flow-sync'];
+const EXPECTED = ['flow-init', 'flow-intake', 'flow-research', 'flow-spec', 'flow-plan', 'flow-tasks', 'flow-implement', 'flow-resume', 'flow-run', 'flow-review', 'flow-audit', 'flow-drift', 'flow-sync'];
 
-test('all 13 skills exist, each with matching name and a real description', () => {
+test('all 13 skills exist (flow-intake replaced flow-analyze), each with matching name and a real description', () => {
   assert.deepEqual([...skills].sort(), [...EXPECTED].sort());
   for (const s of skills) {
     const text = readFileSync(join(root, 'skills', s, 'SKILL.md'), 'utf8');
@@ -44,7 +44,7 @@ test('flow-state subcommands used by skills are real', () => {
     assert.ok(src.includes(`cmd === '${m[1]}'`), `${s}: flow-state.js ${m[1]}`);
   }
   const gates = readFileSync(join(root, 'scripts/gates.js'), 'utf8');
-  for (const s of skills) for (const m of readFileSync(join(root, 'skills', s, 'SKILL.md'), 'utf8').matchAll(/gates\.js (run|size|diff|testfirst)/g)) assert.ok(gates.includes(`cmd === '${m[1]}'`));
+  for (const s of skills) for (const m of readFileSync(join(root, 'skills', s, 'SKILL.md'), 'utf8').matchAll(/gates\.js (run|size|check|diff|testfirst)/g)) assert.ok(gates.includes(`cmd === '${m[1]}'`));
 });
 
 test('config template parses; unfilled it fails validation exactly where init must ask', () => {

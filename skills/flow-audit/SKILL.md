@@ -14,6 +14,6 @@ Use `review` to check rules and invariants. Hand code reading to research subage
 3. **Check** `enforce: review` rules and the invariants. Same evidence rule as flow-review: cite file:line and quote; re-open the file before reporting; no style opinions that no rule states.
 4. **Rank** findings: `block` (invariant or data/security risk), `ask`, `log`. Group by rule, so one rule broken in 40 places is one finding with a count and 5 examples.
 5. **Output** `<flow_dir>/audit/<YYYY-MM-DD>.md` with the table and a diff against the previous audit file (new / still open / fixed).
-6. **Act.** `block` findings: ask the user whether to create fix tasks. If yes, append them to a new feature's `tasks.md` as `Type: fix` (test-first) and run `/flow-analyze`. Never fix anything directly from an audit.
+6. **Act.** `block` findings: ask the user whether to create fix tasks. If yes, append them to a new feature's `tasks.md` as `Type: fix` (test-first), run `gates.js check --feature <slug>`, and add the feature to `queue.md` as `draft` for `/flow-intake` to approve. Never fix anything directly from an audit.
 
 Schedule it (weekly is a good default) through the harness's scheduler; each run is still an interactive-harness session.

@@ -32,7 +32,7 @@ Read representative code. Reuse existing `docs/rules/`. Add only rules needed fo
 ## 5. Install
 1. Write `flow.config.yaml` from `templates/flow.config.yaml` with the answers. Run `node <kit>/scripts/doctor.js --ci` to validate it; fix every error.
 2. Write `AGENTS.md` (template + the project specifics from step 1). `CLAUDE.md` contains only `@AGENTS.md`.
-3. Create the configured flow folder, `backlog.md`, `active/`, `done/`, and `decisions/`.
+3. Create the configured flow folder, `queue.md` (from `templates/queue.md`), `backlog.md`, `active/`, `done/`, and `decisions/`.
 4. Insert target-specific toolchain and install steps in the CI template. For a multi target, run setup with `FLOW_CONFIG` and `FLOW_TARGET` set. Setup embeds a CI-only config projection, so target CI does not need hub credentials.
 5. Explain the two workflows: `flow-gates.yml` runs the code, and `flow-merge.yml` judges and merges with base-branch code. The merge job blocks when configured CI checks are missing or failing. Manual GitHub merges can bypass it. Merges made with `GITHUB_TOKEN` do not start `on: push` deploy workflows, so name the deploy option (a GitHub App token, or `on: workflow_run`).
 6. Run `node scripts/flow/doctor.js`. Report every FAIL and WARN verbatim. Init is not done while any FAIL remains.

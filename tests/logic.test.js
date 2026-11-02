@@ -103,7 +103,7 @@ test('verdict: inconsistent or malformed verdicts are invalid (never silently pa
 test('classify: unknown categories fail safe to block', () => {
   assert.equal(classify('rename', 'drift'), 'log');
   assert.equal(classify('new_behavior', 'drift'), 'ask');
-  assert.equal(classify('coverage', 'analyze'), 'block');
+  assert.equal(classify('contradicts_spec', 'drift'), 'block');
   assert.equal(classify('totally_new_category', 'drift'), 'block');
   assert.equal(classify('rename', 'unknown-kind'), 'block');
 });
@@ -342,3 +342,40 @@ test('gates: a gate never inherits NODE_TEST_CONTEXT (nested node --test would s
   assert.equal(r.ok, true);
 });
 
+
+import { checkFeature, parseTaskBlocks } from '../scripts/gates.js';
+import { parseQueue, nextInQueue, setQueueStatus } from '../scripts/flow-state.js';
+
+const SPEC = '# Spec: f\n\n## Success criteria\n- SC-1: one\n- SC-2: two\n';
+const task = (id, tag, criteria, extra = '') => `### ${id}. [${tag}] Do a thing\n- Goal: g\n- Context: c\n- Acceptance criteria:\n${criteria.map((c) => `  - ${c}`).join('\n')}\n- Type: feature\n- Estimate: S\n${extra}`;
+
+test('check: a complete feature passes', () => {
+  const tasks = `# Tasks: f\n\n${task(1, 'api', ['[SC-1] works'])}\n${task(2, 'app', ['[SC-2] shows `digest.summary` field'])}\n## Tracker\n| Task | Issue |\n`;
+  assert.deepEqual(checkFeature({ spec: SPEC, tasks, tags: ['api', 'app'] }), []);
+  assert.equal(parseTaskBlocks(tasks).length, 2, 'the Tracker section is not a task');
+});
+
+test('check: uncited and unknown SCs, unknown tags, missing fields and code in ticket text are problems', () => {
+  const tasks = [
+    task(1, 'api', ['[SC-1] works', '[SC-9] ghost']),
+    task(2, 'web', ['no citation here']),
+    '### 3. [api] Edit src/auth/login.ts\n- Goal: fix it in 2 hours\n- Acceptance criteria:\n  - [SC-1] see login.ts:42\n- Type: chore\n',
+  ].join('\n');
+  const what = checkFeature({ spec: SPEC, tasks, tags: ['api'] }).map((p) => `${p.where}: ${p.what}`).join('\n');
+  for (const re of [/task 1: cites SC-9/, /task 2: tag \[web\]/, /task 2: acceptance criterion cites no/, /coverage: SC-2 is not cited/, /task 3: missing Context/, /task 3: Type must be feature or fix/, /task 3: ticket text contains a file path/, /task 3: ticket text contains a line number/, /task 3: ticket text contains an estimate/]) assert.match(what, re);
+  assert.match(checkFeature({ spec: '', tasks: '', tags: [] }).map((p) => p.what).join(), /no success criteria.*no tasks/);
+});
+
+test('queue: running resumes first, then the first approved row whose dependencies are done', () => {
+  const md = `# Queue\n\n| Slug | Status | Depends on | Requirement |\n|---|---|---|---|\n| a | done | - | first |\n| b | approved | c | needs c |\n| c | approved | a | needs a |\n| d | draft | - | later |\n| e | blocked | - | waits |\n`;
+  const rows = parseQueue(md);
+  assert.deepEqual(rows.map((r) => r.slug), ['a', 'b', 'c', 'd', 'e']);
+  const q = nextInQueue(rows);
+  assert.deepEqual({ next: q.next, waiting: q.waiting_on_dependencies, blocked: q.blocked, drafts: q.drafts, complete: q.complete }, { next: 'c', waiting: ['b'], blocked: ['e'], drafts: ['d'], complete: false });
+  const running = setQueueStatus(md, 'b', 'running');
+  assert.equal(nextInQueue(parseQueue(running)).next, 'b');
+  assert.match(running, /\| b \| running \| c \| needs c \|/);
+  assert.throws(() => setQueueStatus(md, 'zz', 'done'), /no queue row/);
+  assert.throws(() => setQueueStatus(md, 'a', 'maybe'), /status must be/);
+  assert.match(nextInQueue(parseQueue('| x | approved | nope | r |\n')).problems.join(), /unknown feature nope/);
+});

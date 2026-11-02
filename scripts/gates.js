@@ -2,6 +2,7 @@
 // Machine checks that run BEFORE any AI judgment.
 //   node gates.js run   --target <tag> [--e2e]     run the target's gate commands, fail fast
 //   node gates.js size  --feature <slug>           spec/plan line caps
+//   node gates.js check --feature <slug>           size caps, SC coverage, task fields and tags, ticket text
 //   node gates.js diff  --base origin/main [--head <ref>]   task diff-size cap (test files reported apart)
 //   node gates.js testfirst --base origin/main [--prove [--target <tag>]] [--optional]
 //                                                  fix tasks: failing test commit must precede the fix;
@@ -23,6 +24,56 @@ export function checkSizeCaps(files, limits) {
     const cap = name === 'spec.md' ? limits.max_spec_lines : /^plan-.+\.md$/.test(name) ? limits.max_plan_lines : null;
     if (cap && n > cap) problems.push({ file: name, lines: n, cap, fix: 'split the feature; never compress to fit' });
   }
+  return problems;
+}
+
+// Feature documents -> the mechanical checks a run needs before it starts. Judgement checks (scope,
+// not included, matching contracts) stay with the planning skill. Every problem blocks the run.
+const FILE_PATH = /(?:[\w.-]+\/)+[\w-]+\.\w{1,5}\b|\b[\w-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rb|java|kt|rs|php|cs|sql|ya?ml|json|toml)\b/;
+const LINE_REF = /\.\w{1,5}:\d+\b|\bline \d+\b/i;
+const ESTIMATE = /\b\d+(?:\.\d+)?\s?(?:h|hrs?|hours?|days?|pts?|points?|sp)\b/i;
+
+export function parseTaskBlocks(markdown) {
+  const blocks = [];
+  let cur = null;
+  for (const line of markdown.split('\n')) {
+    const head = line.match(/^###\s+(\d+)\.\s+\[([^\]]+)\]\s+(.+)$/);
+    if (head) { cur = { id: head[1], tag: head[2], title: head[3].trim(), fields: {}, criteria: [] }; blocks.push(cur); continue; }
+    if (/^#{1,3}\s/.test(line)) { cur = null; continue; }
+    if (!cur) continue;
+    const field = line.match(/^-\s+(Goal|Context|Acceptance criteria|Type|Estimate):\s*(.*)$/);
+    if (field) { cur.fields[field[1]] = field[2].trim(); cur.last = field[1]; continue; }
+    if (cur.last === 'Acceptance criteria' && /^\s+-\s+/.test(line)) cur.criteria.push(line.trim().replace(/^-\s+/, ''));
+  }
+  return blocks;
+}
+
+export function checkFeature({ spec = '', tasks = '', tags = [] }) {
+  const problems = [];
+  const add = (where, what) => problems.push({ where, what });
+  const specIds = new Set([...spec.matchAll(/^\s*-\s+\**(SC-\d+)\**\s*:/gm)].map((m) => m[1]));
+  if (!specIds.size) add('spec.md', 'no success criteria written as "- SC-n: ..."');
+  const blocks = parseTaskBlocks(tasks);
+  if (!blocks.length) add('tasks.md', 'no tasks written as "### N. [tag] Title"');
+  const cited = new Set();
+  for (const b of blocks) {
+    const at = `task ${b.id}`;
+    if (!tags.includes(b.tag)) add(at, `tag [${b.tag}] is not a target in flow.config.yaml`);
+    for (const f of ['Goal', 'Context', 'Type']) if (!b.fields[f]) add(at, `missing ${f}`);
+    if (b.fields.Type && !/^(feature|fix)\b/.test(b.fields.Type)) add(at, `Type must be feature or fix, not "${b.fields.Type}"`);
+    if (!b.criteria.length) add(at, 'missing Acceptance criteria');
+    for (const c of b.criteria) {
+      const ids = [...c.matchAll(/\[(SC-\d+)\]/g)].map((m) => m[1]);
+      if (!ids.length) add(at, `acceptance criterion cites no [SC-n]: "${c.slice(0, 60)}"`);
+      for (const id of ids) { cited.add(id); if (!specIds.has(id)) add(at, `cites ${id}, which the spec does not define`); }
+    }
+    const ticket = [b.title, b.fields.Goal ?? '', b.fields.Context ?? '', ...b.criteria].join('\n');
+    for (const [re, what] of [[FILE_PATH, 'a file path'], [LINE_REF, 'a line number'], [ESTIMATE, 'an estimate']]) {
+      const m = ticket.match(re);
+      if (m) add(at, `ticket text contains ${what} ("${m[0]}"); describe the product, not the code`);
+    }
+  }
+  for (const id of specIds) if (!cited.has(id)) add('coverage', `${id} is not cited by any task`);
   return problems;
 }
 
@@ -131,6 +182,13 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.md')).map((name) => ({ name, text: readFileSync(join(dir, name), 'utf8') })) : [];
     const problems = checkSizeCaps(files, cfg.limits);
     out = { ok: problems.length === 0, problems };
+  } else if (cmd === 'check') {
+    const dir = join(flowDir(cfg), 'active', arg('--feature'));
+    const read = (f) => (existsSync(join(dir, f)) ? readFileSync(join(dir, f), 'utf8') : '');
+    const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.md')).map((name) => ({ name, text: read(name) })) : [];
+    const size = checkSizeCaps(files, cfg.limits).map((p) => ({ where: p.file, what: `${p.lines} lines, cap ${p.cap}: ${p.fix}` }));
+    const problems = [...size, ...checkFeature({ spec: read('spec.md'), tasks: read('tasks.md'), tags: cfg.targets.map((t) => t.tag) })];
+    out = { ok: problems.length === 0, problems };
   } else if (cmd === 'docs') {
     const files = collectFlowDocuments(flowDir(cfg));
     const size = checkSizeCaps(files, cfg.limits);
@@ -153,7 +211,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       if (!targets.length) { console.error('unknown target'); process.exit(3); }
       out = proveTestFails({ testCommit: out.test_commit, testGlobs: cfg.test_globs, targets, cfg });
     }
-  } else { console.error('usage: gates.js run|size|docs|diff|testfirst'); process.exit(2); }
+  } else { console.error('usage: gates.js run|size|check|docs|diff|testfirst'); process.exit(2); }
   console.log(JSON.stringify(out, null, 2));
   process.exit(out.ok ? 0 : 1);
 }

@@ -35,7 +35,7 @@ Everything you write is read by someone who has no context and little time, and 
 | gate | a command that must pass: lint, types, tests, build | check, guard |
 | hook | a script that a harness or git runs by itself | guard, trigger |
 | verdict | the file `verdict.json` that the review writes | review result, report |
-| finding | a problem found by `/flow-analyze`, `/flow-drift`, or `/flow-audit` | issue, flag |
+| finding | a problem found by `gates.js check`, `/flow-drift`, or `/flow-audit` | issue, flag |
 | violation | a problem in a verdict | finding |
 | rule | a line in `docs/rules/` | policy, guideline |
 | invariant | a rule that must hold in all the code | constraint, law |
@@ -47,15 +47,14 @@ Everything you write is read by someone who has no context and little time, and 
 | Point | Skill | Blocking |
 |---|---|---|
 | Code rules + invariants | flow-init | yes |
-| Research questions | flow-research | yes (answers needed) |
-| Spec | flow-spec | yes |
-| Plan | flow-plan | yes |
-| Analyze / drift findings | flow-analyze, flow-drift | by severity: block stops, ask continues, log records |
+| Spec and plans of each feature, approved together | flow-intake (one round for many features) or flow-plan | yes |
+| Questions that change scope | flow-intake, flow-research | yes (answers needed) |
+| Drift findings | flow-drift | by severity: block stops, ask continues, log records |
 | Question a plan does not cover | flow-run | yes, via questions.md |
 | Merge of a high-risk pull request | CI merge job | yes |
 
 ## Layout
-`<flow_dir>/backlog.md` | `<flow_dir>/active/<slug>/{research,spec,plan-<tag>,tasks,drift}.md` | `<flow_dir>/decisions/` | `<flow_dir>/active/<slug>/tasks/<id>/{state,questions}.md + verdict.json` | `<flow_dir>/done/<slug>/`
+`<flow_dir>/queue.md` | `<flow_dir>/backlog.md` | `<flow_dir>/active/<slug>/{research,spec,plan-<tag>,tasks,drift}.md` | `<flow_dir>/decisions/` | `<flow_dir>/active/<slug>/tasks/<id>/{state,questions}.md + verdict.json` | `<flow_dir>/done/<slug>/`
 
 ## Commands
 Gates, test-first check, size caps: `node scripts/flow/gates.js run|testfirst|diff|size`. Health: `node scripts/flow/doctor.js`.

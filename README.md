@@ -42,20 +42,29 @@ Then run this in your harness, not in your terminal:
 
 `flow-init` finds your stack and your existing lint, types, tests, and build commands. These become the gates. A gate is a check that must pass before code can merge. It writes 8 to 20 code rules from your code, and you must approve them. Then it installs the scripts and runs `doctor`. The install is not done while `doctor` reports a FAIL.
 
-## Build a feature
+## Build features
 
-Run these commands one at a time, in your harness.
+Give it your requirements, approve each feature once, and let it run.
 
 ```
-/flow-research <slug>    optional. Questions until the problem is clear
-/flow-spec <slug>        what to build and why. You approve
-/flow-plan <slug>        how to build it, one file per repo. You approve
-/flow-tasks <slug>       a list of small tasks, about 300 changed lines each
-/flow-analyze <slug>     checks that spec, plan, and tasks agree. It changes nothing
+/flow-intake             requirements in. It splits them into features, writes the spec, plans and
+                         tasks of each, and asks you to approve each feature in one round
+/flow-run                works through queue.md, feature after feature, until it needs you
+```
+
+`/flow-intake` writes `queue.md`: one row per feature, in run order, with the features it depends on. A feature runs when you approved it and its dependencies are done.
+
+To build one feature by hand, run these commands one at a time. `<slug>` is a short name for the feature.
+
+```
+/flow-research <slug>    optional. Reads the code and asks questions until the problem is clear
+/flow-spec <slug>        what to build and why
+/flow-plan <slug>        how to build it, one file per repo. You approve the spec and plans together
+/flow-tasks <slug>       small tasks, about 300 changed code lines each, then the feature check
 /flow-run <slug>         runs the tasks one after another, until it needs you
 ```
 
-`<slug>` is a short name for the feature.
+`gates.js check` runs before any task starts. It checks that every success criterion is cited by a task, that the tasks have their fields and valid tags, that ticket text has no file paths or estimates, and that the spec and plans fit their caps.
 
 For each task, `/flow-run` does this:
 
@@ -65,11 +74,13 @@ For each task, `/flow-run` does this:
 4. A pull request is opened and CI runs.
 5. The pull request merges, or waits for you, depending on its risk. It waits if it touches migrations, auth, infra, or CI.
 
+A task starts only after the pull request of the task before it has merged. When a pull request waits for you, `/flow-run` marks that feature `blocked` and continues with features that do not depend on it.
+
 If the review fails, `/flow-run` tries again on the same branch, with the verdict as input. It tries up to 3 times. Then it writes a question and stops. It tells you where it stopped, why, and which file to answer in.
 
 After the last task, run `/flow-drift`. It checks if the code still matches the spec.
 
-You are needed to approve the code rules, the spec, and the plan, to answer research questions, to answer any question the plan does not cover, and to merge a high-risk pull request. Serious findings from `/flow-analyze` and `/flow-drift` also stop the flow. Everything else runs without you.
+You are needed to approve the code rules once, to approve each feature (spec and plans together), to answer questions that change scope or that the plan does not cover, and to merge a high-risk pull request. Serious findings from `/flow-drift` also stop that feature. Everything else runs without you.
 
 `flow-research` interviews the user about decisions that can change the feature. `flow-sync` publishes tasks when a tracker is configured. `flow-audit` checks the whole repo on demand.
 
@@ -93,7 +104,7 @@ They are installed in your project in `scripts/flow/`, together with the git hoo
 
 - The retry limit, staying inside the task, and the quality of the review depend on the skills being followed. The scripts can show that a review is missing or fake. They cannot show that a review is good.
 - When a test fails, the harness must find where it broke and why, then fix it. No script checks this. The review looks for tests that were deleted, skipped, or weakened without a reason.
-- No script checks that a test exists for each success criterion. `/flow-analyze` checks that every criterion is covered by a task, and the review checks the tests. The review is done by an AI.
+- No script checks that a test exists for each success criterion. `gates.js check` checks that every criterion is cited by a task, and the review checks the tests. The review is done by an AI.
 - CI does not run end-to-end tests by default. `/flow-review` runs the `e2e` command of a target on your machine. To run it in CI, add the same command to `gates`.
 - The CI script cannot block a person from merging manually in the hosting service. Branch rules can add that protection when available.
 - Auto-merge relies on your gates. If your tests are weak, a bad change can merge.
@@ -147,7 +158,7 @@ Capabilities are independent of skills. A skill requests a capability; the confi
 
 | Capability | Used for | Claude Code default |
 |---|---|---|
-| `planning` | spec, plans, tasks, analyze, drift | opus |
+| `planning` | intake, spec, plans, tasks, drift | opus |
 | `research` | leads investigation; subagents do read-only code search | opus; haiku subagents |
 | `implementation` | one task per session | sonnet; opus on retry |
 | `review` | independent diff review | opus |
@@ -160,7 +171,7 @@ Feature-level decisions stay in the plan. Decisions that should guide future fea
 
 ## Status
 
-There are 87 tests and 29 fixture scenarios (`npm test`, `npm run fixtures`). They use no AI and cover gates, verdicts, CI result selection, capability routing, merge by risk, task progress, push blocks, and setup across all three layouts.
+There are 100 tests and 38 fixture scenarios (`npm test`, `npm run fixtures`). They use no AI and cover gates, the feature check, the queue, verdicts, CI result selection, capability routing, merge by risk, task progress, push blocks, and setup across all three layouts.
 
 Not tested yet: the skills with real AI models, the hooks inside real sessions, answering from a phone with Orca, and sync with Linear and GitHub. The kit is ready to use but has not run in production. Before you let it run on its own, run one small feature in each layout, from start to end.
 

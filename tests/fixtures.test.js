@@ -121,6 +121,20 @@ for (const kind of ['single', 'monorepo', 'multi']) {
     assert.match(ci.out, /code changed after review/);
   });
 
+  test(`[${kind}] feature check and queue work through FLOW_DIR`, () => {
+    const c = prepare(kind);
+    const chk = (env = c.env) => flow(c.code, 'gates.js', ['check', '--feature', 'f'], env);
+    assert.equal(chk().status, 1, 'no spec yet');
+    commit(c.hub, { '.flow/active/f/spec.md': '# Spec: f\n\n## Success criteria\n- SC-1: works\n' }, 'docs(flow): spec f');
+    const ok = chk();
+    assert.equal(ok.status, 0, ok.out);
+    const queue = '| Slug | Status | Depends on | Requirement |\n|---|---|---|---|\n| f | approved | - | the f feature |\n| g | approved | f | after f |\n';
+    commit(c.hub, { '.flow/queue.md': queue }, 'docs(flow): queue');
+    assert.equal(JSON.parse(flow(c.code, 'flow-state.js', ['queue'], c.env).stdout).next, 'f');
+    assert.equal(JSON.parse(flow(c.code, 'flow-state.js', ['queue', 'f', 'done'], c.env).stdout).next, 'g');
+    assert.match(readFileSync(join(c.hub, '.flow/queue.md'), 'utf8'), /\| f \| done \|/);
+  });
+
   test(`[${kind}] a flow PR that leaves out its task folder still needs its verdict`, () => {
     const c = prepare(kind);
     git(c.code, 'checkout', '-q', '-b', 'flow/f/3');
