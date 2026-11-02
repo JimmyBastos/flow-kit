@@ -7,11 +7,11 @@ description: Implement exactly one task from tasks.md on its own branch, committ
 
 Input: slug and task id. You work in a worktree on branch `flow/<slug>/<id>`; if the branch does not exist create it from the default branch. Set `FLOW_CONFIG` and `FLOW_DIR` before calling scripts. In `multi`, `FLOW_DIR` points to the hub's configured flow folder.
 
-Use the `implementation` capability. A task may request another configured capability. Do not choose a model by skill name.
+Use the `implementation` capability (`--retry` when a previous verdict exists). Use `utility` for commit messages when it is configured. A task may request another configured capability. Do not choose a model by skill name.
 
 ## Before coding
 1. If this is not a brand-new task, run `/flow-resume` first and follow it.
-2. Select the `implementation` capability using `node scripts/flow/capabilities.js select implementation`. Read the task, cited success criteria, target plan, and matching `docs/rules/` files.
+2. Select the `implementation` capability using `node scripts/flow/capabilities.js select implementation`, adding `--retry` when `verdict.json` exists. Read the task, cited success criteria, target plan, and matching `docs/rules/` files.
 3. `node scripts/flow/flow-state.js write <slug> <id> status=in_progress branch=flow/<slug>/<id> next_step="<first step>" next_harness=<review harness>`; commit it.
 
 ## Work loop (repeat per small step)

@@ -7,7 +7,7 @@ description: Write one plan per target (how to build the approved spec), cross-c
 
 Input: approved `spec.md`. Output: `<flow_dir>/active/<slug>/plan-<tag>.md` for each target the spec lists (template: `templates/plan.md`).
 
-Use `repository_exploration` to inspect each target. Use `reasoning` to draft and cross-check plans. Do not choose models in this skill.
+Use `repository_exploration` to inspect each target. Use `planning` to draft and cross-check plans. Do not choose models in this skill.
 
 ## Procedure
 1. Refuse if the spec is not `Status: approved`.

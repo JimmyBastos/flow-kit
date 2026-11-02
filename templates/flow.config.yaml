@@ -11,22 +11,29 @@ tracker: none               # linear | github-issues | none
 workspace: git-worktree     # git-worktree | orca
 fallback: unavailable       # try the next candidate only if the harness or model is unavailable
 capabilities:               # ordered candidates; tasks request capabilities, not models
-  reasoning:
+  planning:                 # research interview, spec, plans, analyze, drift classification
     candidates:
       - { harness: auto, model: default }
       - { harness: auto, model: default }
-  repository_exploration:
+  repository_exploration:   # read-only code search across targets
     candidates:
       - { harness: auto, model: default }
       - { harness: auto, model: default }
-  implementation:
+  implementation:           # one task, test first, on its own branch
     candidates:
       - { harness: auto, model: default }
       - { harness: auto, model: default }
-  review:
+    retry_candidates:       # used after a failed review (flow-run passes --retry); declared, never silent
+      - { harness: auto, model: default }
+  review:                   # independent diff review against rules and invariants
     prefer_different_harness: true
     candidates:
       - { harness: auto, model: default }
+      - { harness: auto, model: default }
+    # high_risk_candidates: # used when the diff touches merge.high_risk_paths (--high-risk)
+    #   - { harness: claude-code, model: opus }
+  utility:                  # short text: commit messages, PR bodies, tracker tickets, summaries
+    candidates:
       - { harness: auto, model: default }
 model_policy:                # optional provider rules; adapters exclude candidates that fail them
   providers: {}

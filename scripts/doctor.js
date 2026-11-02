@@ -7,7 +7,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadConfig, requiredChecks } from './lib/config.js';
+import { loadConfig, requiredChecks, allCandidates } from './lib/config.js';
 import { SECRET_DENY } from './lib/setup-merge.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -67,7 +67,7 @@ function run(ci) {
   const envPct = process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE;
   add('CLAUDE_AUTOCOMPACT_PCT_OVERRIDE exported', Number(envPct) === cfg.compaction.trigger_percent ? { status: 'ok' } : { status: 'warn', detail: `not exported in this shell (want ${cfg.compaction.trigger_percent}); it only lowers the default of ~77-83%` });
 
-  const contexts = Object.values(cfg.capabilities ?? {}).flatMap((profile) => (profile.candidates ?? []).map((candidate) => candidate.context_window ?? cfg.compaction.default_context_window));
+  const contexts = allCandidates(cfg).map((candidate) => candidate.context_window ?? cfg.compaction.default_context_window);
   const win = contexts.length ? Math.min(...contexts) : cfg.compaction.default_context_window;
   const { trigger_percent: pct } = cfg.compaction;
   add('Codex compaction limit', existsSync('.codex/config.toml') ? checkCodexToml(readFileSync('.codex/config.toml', 'utf8'), win, pct) : { status: 'fail', detail: 'missing .codex/config.toml' });

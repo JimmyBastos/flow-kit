@@ -51,7 +51,9 @@ test('config template parses; unfilled it fails validation exactly where init mu
   const cfg = normalize(parse(readFileSync(join(root, 'templates/flow.config.yaml'), 'utf8')));
   const errs = validate(cfg).join('\n');
   assert.match(errs, /placeholder gate commands/);
-  assert.equal(cfg.capabilities.reasoning.candidates[0].harness, 'auto');
+  assert.equal(cfg.capabilities.planning.candidates[0].harness, 'auto');
+  assert.equal(cfg.capabilities.implementation.retry_candidates[0].model, 'default');
+  assert.equal(cfg.capabilities.utility.candidates[0].harness, 'auto');
   assert.equal(cfg.capabilities.repository_exploration.candidates[0].model, 'default');
   assert.doesNotMatch(errs, /topology|tracker|limits|compaction/);
 });

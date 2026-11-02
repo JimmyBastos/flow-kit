@@ -3,10 +3,12 @@
     "command": "claude",
     "detect_args": ["--version"],
     "defaults": {
-      "reasoning": { "model": "opus", "context_window": 1000000 },
+      "planning": { "model": "opus", "context_window": 1000000 },
       "repository_exploration": { "model": "haiku", "context_window": 1000000 },
       "implementation": { "model": "sonnet", "context_window": 1000000 },
-      "review": { "model": "sonnet", "context_window": 1000000 }
+      "implementation.retry": { "model": "opus", "context_window": 1000000 },
+      "review": { "model": "opus", "context_window": 1000000 },
+      "utility": { "model": "haiku", "context_window": 200000 }
     }
   },
   "opencode": { "command": "opencode", "detect_args": ["--version"], "default_model": "default" },

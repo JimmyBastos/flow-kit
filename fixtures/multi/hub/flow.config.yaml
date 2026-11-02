@@ -9,7 +9,7 @@ targets:
     gates: ["node --test"]
 tracker: none
 capabilities:
-  reasoning:
+  planning:
     candidates:
       - harness: claude-code
         model: opus

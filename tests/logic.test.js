@@ -9,7 +9,7 @@ import { decide } from '../scripts/merge.js';
 import { checkText, checkSizeCaps, checkDiffSize, checkTestFirst, runGates } from '../scripts/gates.js';
 import { parseState, serializeState, validateState, parseTasks, deriveStatus } from '../scripts/flow-state.js';
 import { checkPush } from '../scripts/pre-push.js';
-import { selectCandidate, compactionForCandidate, detectInstalledHarnesses, resolveDefaultModel } from '../scripts/capabilities.js';
+import { selectCandidate, compactionForCandidate, detectInstalledHarnesses, resolveDefaultModel, candidatesFor } from '../scripts/capabilities.js';
 import { checkRequiredChecks, waitForRequiredChecks } from '../scripts/check-ci.js';
 
 const goodCfg = () => normalize(parse(`
@@ -20,7 +20,7 @@ targets:
     path: .
     gates: ["npm test"]
 capabilities:
-  reasoning:
+  planning:
     candidates:
       - harness: claude-code
         model: opus
@@ -163,6 +163,32 @@ test('capabilities: auto/default candidates use installed harness adapters', () 
   assert.deepEqual(resolveDefaultModel({ harness: 'claude-code', model: 'default' }, 'repository_exploration', {
     'claude-code': { defaults: { repository_exploration: { model: 'haiku', context_window: 1000000 } } },
   }), { harness: 'claude-code', model: 'haiku', context_window: 1000000 });
+});
+
+test('capabilities: retry and high-risk variants are declared, ordered first, and fall back to base candidates', () => {
+  const profile = {
+    candidates: [{ harness: 'claude-code', model: 'sonnet' }],
+    retry_candidates: [{ harness: 'codex', model: 'gpt' }],
+    high_risk_candidates: [{ harness: 'opencode', model: 'glm' }],
+  };
+  assert.deepEqual(selectCandidate(profile, { availableHarnesses: ['claude-code', 'codex', 'opencode'] }), profile.candidates[0]);
+  assert.equal(selectCandidate(profile, { availableHarnesses: ['claude-code', 'codex'], retry: true }).model, 'gpt');
+  assert.equal(selectCandidate(profile, { availableHarnesses: ['claude-code', 'codex', 'opencode'], retry: true, highRisk: true }).variant, 'high_risk');
+  assert.equal(selectCandidate(profile, { availableHarnesses: ['claude-code'], retry: true }).model, 'sonnet');
+  assert.deepEqual(candidatesFor({ candidates: [{ harness: 'a', model: 'b' }] }, { retry: true }), [{ harness: 'a', model: 'b' }]);
+  const registry = { 'claude-code': { defaults: { implementation: { model: 'sonnet' }, 'implementation.retry': { model: 'opus' } } } };
+  assert.equal(resolveDefaultModel({ harness: 'claude-code', model: 'default', variant: 'retry' }, 'implementation', registry).model, 'opus');
+  assert.equal(resolveDefaultModel({ harness: 'claude-code', model: 'default', variant: 'high_risk' }, 'implementation', registry).model, 'sonnet');
+});
+
+test('config: variant candidate lists are validated like base candidates', () => {
+  const cfg = goodCfg();
+  cfg.capabilities.implementation.retry_candidates = [{ harness: 'codex' }];
+  cfg.capabilities.review.high_risk_candidates = [];
+  const errs = validate(cfg).join('\n');
+  assert.match(errs, /implementation\.retry_candidates\[0\]\.model is required/);
+  assert.match(errs, /review\.high_risk_candidates must be a non-empty list/);
+  assert.match(warnings(goodCfg()).join(), /utility is not configured/);
 });
 
 test('CI gate: every configured check must exist and pass', () => {

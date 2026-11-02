@@ -31,6 +31,24 @@ function merge(base, over) {
   return out;
 }
 
+// A capability lists base candidates plus optional variants chosen on retry or for high-risk diffs.
+export const CANDIDATE_LISTS = ['candidates', 'retry_candidates', 'high_risk_candidates'];
+
+export const allCandidates = (cfg) => Object.values(cfg.capabilities ?? {}).flatMap((profile) => CANDIDATE_LISTS.flatMap((list) => (Array.isArray(profile?.[list]) ? profile[list] : [])));
+
+function validateCandidate(cfg, at, candidate, errors) {
+  if (!candidate.harness) errors.push(`${at}.harness is required`);
+  if (!candidate.model) errors.push(`${at}.model is required`);
+  if (candidate.context_window !== undefined && (!Number.isInteger(candidate.context_window) || candidate.context_window < 1)) errors.push(`${at}.context_window must be a positive integer`);
+  const provider = candidate.provider ?? (String(candidate.model ?? '').includes('/') ? String(candidate.model).split('/')[0] : null);
+  const policy = provider ? cfg.model_policy?.providers?.[provider] : null;
+  if (!policy) return;
+  const data = candidate.data_policy;
+  if (!isObj(data)) { errors.push(`${at} needs data_policy for provider ${provider}`); return; }
+  if (policy.max_retention_days !== undefined && (!Number.isInteger(data.retention_days) || data.retention_days > policy.max_retention_days)) errors.push(`${at} exceeds ${provider} retention policy`);
+  if (policy.allow_training === false && data.trains_on_requests !== false) errors.push(`${at} violates ${provider} no-training policy`);
+}
+
 export function validate(cfg) {
   const errors = [];
   if (!['single', 'monorepo', 'multi'].includes(cfg.topology)) errors.push('topology must be single | monorepo | multi');
@@ -55,21 +73,12 @@ export function validate(cfg) {
     if (!isObj(cfg.capabilities)) errors.push('capabilities must be a map of capability names to candidate lists');
     else for (const [name, profile] of Object.entries(cfg.capabilities)) {
       if (!Array.isArray(profile?.candidates) || profile.candidates.length === 0) errors.push(`capabilities.${name}.candidates must be a non-empty list`);
-      else profile.candidates.forEach((candidate, i) => {
-        if (!candidate.harness) errors.push(`capabilities.${name}.candidates[${i}].harness is required`);
-        if (!candidate.model) errors.push(`capabilities.${name}.candidates[${i}].model is required`);
-        if (candidate.context_window !== undefined && (!Number.isInteger(candidate.context_window) || candidate.context_window < 1)) errors.push(`capabilities.${name}.candidates[${i}].context_window must be a positive integer`);
-        const provider = candidate.provider ?? (String(candidate.model ?? '').includes('/') ? String(candidate.model).split('/')[0] : null);
-        const policy = provider ? cfg.model_policy?.providers?.[provider] : null;
-        if (policy) {
-          const data = candidate.data_policy;
-          if (!isObj(data)) errors.push(`capabilities.${name}.candidates[${i}] needs data_policy for provider ${provider}`);
-          else {
-            if (policy.max_retention_days !== undefined && (!Number.isInteger(data.retention_days) || data.retention_days > policy.max_retention_days)) errors.push(`capabilities.${name}.candidates[${i}] exceeds ${provider} retention policy`);
-            if (policy.allow_training === false && data.trains_on_requests !== false) errors.push(`capabilities.${name}.candidates[${i}] violates ${provider} no-training policy`);
-          }
-        }
-      });
+      for (const list of CANDIDATE_LISTS) {
+        if (profile?.[list] === undefined) continue;
+        if (!Array.isArray(profile[list]) || profile[list].length === 0) { if (list !== 'candidates') errors.push(`capabilities.${name}.${list} must be a non-empty list`); continue; }
+        profile[list].forEach((candidate, i) => validateCandidate(cfg, `capabilities.${name}.${list}[${i}]`, candidate, errors));
+      }
+      if (profile?.prefer_different_harness !== undefined && typeof profile.prefer_different_harness !== 'boolean') errors.push(`capabilities.${name}.prefer_different_harness must be boolean`);
     }
   }
   if (!isObj(cfg.model_policy) || !isObj(cfg.model_policy.providers ?? {})) errors.push('model_policy.providers must be a map of provider ids to data policies');
@@ -95,6 +104,7 @@ export function warnings(cfg) {
   const imp = cfg.capabilities?.implementation?.candidates?.[0]?.harness;
   const rev = cfg.capabilities?.review?.candidates?.[0]?.harness;
   if (imp && rev && imp === rev) out.push('review and implementation use the same first-choice harness; an independent review candidate is preferred');
+  if (cfg.capabilities && !cfg.capabilities.utility) out.push('capabilities.utility is not configured; commit, PR, and summary text run on the calling capability');
   return out;
 }
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Selects an ordered harness/model candidate for a requested capability.
-// Availability is supplied by the harness adapter. Task failures do not trigger fallback.
+// Availability is supplied by the harness adapter. Task failures do not trigger fallback;
+// only a declared retry_candidates list may change the model after a failed attempt.
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
@@ -22,13 +23,27 @@ export function readRegistry(registryPath = null) {
 export function resolveDefaultModel(candidate, capability, registry = {}) {
   if (candidate.model !== 'default') return candidate;
   const adapter = registry[candidate.harness] ?? {};
-  const defaults = adapter.defaults?.[capability] ?? { model: adapter.default_model ?? 'default' };
+  const variantDefaults = candidate.variant ? adapter.defaults?.[`${capability}.${candidate.variant}`] : null;
+  const defaults = variantDefaults ?? adapter.defaults?.[capability] ?? { model: adapter.default_model ?? 'default' };
   return { ...candidate, ...defaults };
 }
 
+// Declared variants come first; the base candidates stay as the availability fallback.
+// high_risk wins over retry because a risky diff needs the stronger reviewer on every attempt.
+export const VARIANT_LISTS = { high_risk: 'high_risk_candidates', retry: 'retry_candidates' };
+
+export function candidatesFor(profile, { retry = false, highRisk = false } = {}) {
+  const base = profile?.candidates ?? [];
+  const variant = highRisk && profile?.high_risk_candidates?.length ? 'high_risk'
+    : retry && profile?.retry_candidates?.length ? 'retry'
+    : null;
+  if (!variant) return base;
+  return [...profile[VARIANT_LISTS[variant]].map((candidate) => ({ ...candidate, variant })), ...base];
+}
+
 export function selectCandidate(profile, options = {}) {
-  const { availableHarnesses = null, unavailableModels = [], preferDifferentHarness = profile?.prefer_different_harness === true, usedHarness = null, modelPolicy = {} } = options;
-  const candidates = profile?.candidates ?? [];
+  const { availableHarnesses = null, unavailableModels = [], preferDifferentHarness = profile?.prefer_different_harness === true, usedHarness = null, modelPolicy = {}, retry = false, highRisk = false } = options;
+  const candidates = candidatesFor(profile, { retry, highRisk });
   const unavailable = new Set(unavailableModels);
   const availableIds = availableHarnesses ?? [...new Set(candidates.filter((candidate) => candidate.harness !== 'auto').map((candidate) => candidate.harness))];
   const expanded = candidates.flatMap((candidate) => candidate.harness === 'auto'
@@ -70,7 +85,7 @@ export function candidateAllowed(candidate, modelPolicy = {}) {
 function main(args) {
   const [cmd, capability, ...rest] = args;
   if (cmd !== 'select' || !capability) {
-    console.error('usage: node capabilities.js select <capability> [--available-harness <id>] [--unavailable <harness/model>] [--used-harness <id>]');
+    console.error('usage: node capabilities.js select <capability> [--available-harness <id>] [--unavailable <harness/model>] [--used-harness <id>] [--retry] [--high-risk]');
     process.exit(2);
   }
   const { cfg, errors } = loadConfig();
@@ -90,6 +105,8 @@ function main(args) {
     preferDifferentHarness: profile.prefer_different_harness === true,
     usedHarness: values('--used-harness')[0] ?? null,
     modelPolicy: cfg.model_policy,
+    retry: rest.includes('--retry'),
+    highRisk: rest.includes('--high-risk'),
   });
   if (!selected) {
     console.error(`no available candidate for capability: ${capability}`);

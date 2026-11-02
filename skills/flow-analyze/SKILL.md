@@ -5,7 +5,7 @@ description: Read-only consistency check across a feature's spec, plans, tasks a
 
 # flow-analyze
 
-Read-only. Never fix anything; report. Output: a findings table in the chat and `<flow_dir>/active/<slug>/analyze.md` (overwritten each run). Use `reasoning`; request `repository_exploration` only to verify target facts.
+Read-only. Never fix anything; report. Output: a findings table in the chat and `<flow_dir>/active/<slug>/analyze.md` (overwritten each run). Use `planning`; request `repository_exploration` only to verify target facts.
 
 ## Mechanical checks first (run them, do not check by reading)
 - `node scripts/flow/gates.js size --feature <slug>` (spec and plan caps).

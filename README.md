@@ -113,15 +113,18 @@ tracker: none               # linear | github-issues | none
 workspace: git-worktree     # git-worktree | orca
 fallback: unavailable       # only fall back when a harness or model is unavailable
 capabilities:
-  reasoning:
+  planning:
     candidates: [{ harness: auto, model: default }, { harness: auto, model: default }]
   repository_exploration:
     candidates: [{ harness: auto, model: default }, { harness: auto, model: default }]
   implementation:
     candidates: [{ harness: auto, model: default }, { harness: auto, model: default }]
+    retry_candidates: [{ harness: auto, model: default }]
   review:
     prefer_different_harness: true
     candidates: [{ harness: auto, model: default }, { harness: auto, model: default }]
+  utility:
+    candidates: [{ harness: auto, model: default }]
 model_policy:
   providers: {}            # optional data-retention and training constraints
 limits:
@@ -142,7 +145,17 @@ merge:
 
 `topology` is `single` for one repo, `monorepo` for one repo with several packages, and `multi` for several repos that make up one product. The config's `flow_dir` points to the shared flow folder. Interactive target worktrees set `FLOW_DIR` to the hub folder. Target CI uses a generated config projection and needs no hub credentials.
 
-Capabilities are independent of skills. A skill requests a capability; the config lists ordered `(harness, model)` candidates. Adapters report availability, model context, and known data policies. Project policy can exclude candidates that retain or train on submitted data.
+Capabilities are independent of skills. A skill requests a capability; the config lists ordered `(harness, model)` candidates.
+
+| Capability | Used for | Claude Code default |
+|---|---|---|
+| `planning` | research, spec, plans, analyze, drift | opus |
+| `repository_exploration` | read-only code search | haiku |
+| `implementation` | one task per session | sonnet; opus on retry |
+| `review` | independent diff review | opus |
+| `utility` | commit messages, PR bodies, tickets, summaries | haiku |
+
+`retry_candidates` are selected after a failed review, so a retry does not repeat the same model by accident. `high_risk_candidates` are selected for review when the diff touches `merge.high_risk_paths`. Both are declared in the config; the base candidates stay as the availability fallback. Adapters report availability, model context, and known data policies. Project policy can exclude candidates that retain or train on submitted data.
 
 The starter config uses `auto/default` candidates. It detects an installed harness and uses that adapter's capability default. Projects can replace the defaults with exact model candidates.
 
@@ -150,7 +163,7 @@ Feature-level decisions stay in the plan. Decisions that should guide future fea
 
 ## Status
 
-There are 85 tests and 29 fixture scenarios (`npm test`, `npm run fixtures`). They use no AI and cover gates, verdicts, CI result selection, capability routing, merge by risk, task progress, push blocks, and setup across all three layouts.
+There are 87 tests and 29 fixture scenarios (`npm test`, `npm run fixtures`). They use no AI and cover gates, verdicts, CI result selection, capability routing, merge by risk, task progress, push blocks, and setup across all three layouts.
 
 Not tested yet: the skills with real AI models, the hooks inside real sessions, answering from a phone with Orca, and sync with Linear and GitHub. The kit is ready to use but has not run in production. Before you let it run on its own, run one small feature in each layout, from start to end.
 

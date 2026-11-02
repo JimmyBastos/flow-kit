@@ -7,7 +7,7 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, symlinkSync,
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { loadConfig } from './lib/config.js';
+import { loadConfig, allCandidates } from './lib/config.js';
 import { mergeClaudeSettings, mergeCodexToml, mergeOpencodeJson, CLAUDE_MD, PRE_PUSH_HOOK, compactionEnvLine } from './lib/setup-merge.js';
 
 const kit = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -19,7 +19,7 @@ const writeJson = (p, o) => { mkdirSync(dirname(p), { recursive: true }); writeF
 
 const { cfg, errors } = loadConfig();
 if (errors.length) { console.error(`flow.config.yaml is invalid:\n  ${errors.join('\n  ')}`); process.exit(3); }
-const candidates = Object.values(cfg.capabilities ?? {}).flatMap((profile) => profile.candidates ?? []);
+const candidates = allCandidates(cfg);
 const windows = candidates.map((candidate) => candidate.context_window ?? cfg.compaction.default_context_window);
 const win = windows.length ? Math.min(...windows) : cfg.compaction.default_context_window;
 const { trigger_percent: pct } = cfg.compaction;
