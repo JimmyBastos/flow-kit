@@ -227,14 +227,19 @@ test('gates: size caps for spec and plan only', () => {
 
 test('gates: diff cap ignores .flow/ and lockfiles', () => {
   const r = checkDiffSize([{ file: 'src/a.js', added: 200, deleted: 50 }, { file: 'pnpm-lock.yaml', added: 9000, deleted: 0 }, { file: '.flow/x.md', added: 500, deleted: 0 }], 300);
-  assert.deepEqual(r, { total: 250, cap: 300, ok: true });
+  assert.deepEqual(r, { total: 250, test_lines: 0, cap: 300, ok: true });
   assert.equal(checkDiffSize([{ file: 'src/a.js', added: 301, deleted: 0 }], 300).ok, false);
+});
+
+test('gates: diff cap does not count test files, and reports them apart', () => {
+  const r = checkDiffSize([{ file: 'src/a.js', added: 250, deleted: 0 }, { file: 'tests/a.test.js', added: 400, deleted: 0 }], 300, goodCfg().test_globs);
+  assert.deepEqual(r, { total: 250, test_lines: 400, cap: 300, ok: true });
 });
 
 test('gates: test-first ordering', () => {
   const globs = goodCfg().test_globs;
   const ok = [{ sha: 'a1111111', files: ['tests/a.test.js'] }, { sha: 'b2222222', files: ['src/a.js'] }];
-  assert.equal(checkTestFirst(ok, globs).ok, true);
+  assert.deepEqual(checkTestFirst(ok, globs), { ok: true, test_commit: 'a1111111' });
   const fixFirst = [{ sha: 'a1111111', files: ['src/a.js'] }, { sha: 'b2222222', files: ['tests/a.test.js'] }];
   assert.equal(checkTestFirst(fixFirst, globs).ok, false);
   const mixed = [{ sha: 'a1111111', files: ['src/a.js', 'tests/a.test.js'] }];

@@ -13,7 +13,7 @@ Use the `review` capability selected for the task. The adapter applies the candi
 Run and capture, in order, stopping at the first failure:
 1. `node scripts/flow/gates.js run --target <tag> [--e2e]` (include `--e2e` when the target has an `e2e` command)
 2. `node scripts/flow/gates.js diff --base <default branch>`
-3. For `Type: fix` tasks: `node scripts/flow/gates.js testfirst --base <default branch>`
+3. For `Type: fix` tasks: `node scripts/flow/gates.js testfirst --base <default branch> --prove --target <tag>`. It needs a clean working tree, and it proves the test fails without the fix.
 If any fails: verdict `fail` with one violation `rule: GATE`, `severity: block`, `why:` the failing command and its last output lines. Do NOT run the AI passes. Write the verdict and stop.
 
 ## Pass 1: acceptance and rules

@@ -115,6 +115,16 @@ capabilities:
   assert.match(doc.stdout, /PASS {2}git pre-push hook active/);
   assert.match(doc.stdout, /PASS {2}Claude Code: guard hook/);
   assert.match(doc.stdout, /PASS {2}Codex compaction limit/);
+  assert.match(doc.stdout, /PASS {2}base-branch CI merge gate/);
+  // the merge workflow judges with base-branch code and only reads the pull request as data
+  const merge = readFileSync(join(dir, '.github/workflows/flow-merge.yml'), 'utf8');
+  assert.match(merge, /pull_request_target:/);
+  assert.match(merge, /ref: "\$\{\{ github\.event\.pull_request\.base\.sha \}\}"/);
+  assert.match(merge, /head\.repo\.full_name == github\.repository/);
+  assert.doesNotMatch(merge, /pull_request\.head\.sha|gates\.js run/, 'the merge workflow must never check out or run pull request code');
+  assert.doesNotMatch(merge, /--auto/);
+  const gates = readFileSync(join(dir, '.github/workflows/flow-gates.yml'), 'utf8');
+  assert.doesNotMatch(gates, /contents: write|merge\.js run/, 'the gates workflow runs pull request code, so it gets no write token');
   assert.match(doc.stdout, /WARN {2}CLAUDE_AUTOCOMPACT_PCT_OVERRIDE/);
   // the installed pre-push hook really blocks a force push to a protected branch
   const remote = mkdtempSync(join(tmpdir(), 'flow-remote-'));

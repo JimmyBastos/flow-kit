@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Auto-merge decision by risk.
 //   node merge.js decide --base origin/main [--head HEAD]   -> prints decision JSON; exit 0 auto, 10 human
-//   node merge.js run <pr-number>                          -> decide, then `gh pr merge --auto --squash` or label for human
+//   node merge.js run <pr-number>                          -> decide, then `gh pr merge --squash` or label for human
+// CI runs this from the base branch (pull_request_target), so a pull request cannot change the code that judges it.
+// It merges directly: GitHub auto-merge needs a repository setting and branch protection, which free private repos lack.
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadConfig, requiredChecks, ALWAYS_HIGH_RISK } from './lib/config.js';
@@ -45,7 +47,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (!checksPassed) console.error(`Required CI checks are not green: ${JSON.stringify(checks)}`);
     const d = decide({ changedFiles: info.files.map((f) => f.path), config: cfg, checksPassed });
     console.log(JSON.stringify(d, null, 2));
-    if (d.action === 'auto') process.exit(spawnSync('gh', ['pr', 'merge', pr, '--auto', '--squash'], { stdio: 'inherit' }).status ?? 1);
+    if (d.action === 'auto') process.exit(spawnSync('gh', ['pr', 'merge', pr, '--squash'], { stdio: 'inherit' }).status ?? 1);
     spawnSync('gh', ['pr', 'edit', pr, '--add-label', 'needs-human-merge'], { stdio: 'inherit' });
     process.exit(10);
   } else { console.error('usage: merge.js decide|run'); process.exit(2); }

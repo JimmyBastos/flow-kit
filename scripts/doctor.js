@@ -32,6 +32,15 @@ export function checkOpencode(json, major, win, pct) {
   return c[key] === want ? { status: 'ok' } : { status: 'fail', detail: `compaction.${key} is ${c[key]}, expected ${want}` };
 }
 
+// The merge workflow must run base-branch code (pull_request_target), check the verdict and CI results, then merge.
+export function checkMergeWorkflow(text, configuredChecks) {
+  if (!Array.isArray(configuredChecks) || !configuredChecks.length) return { status: 'fail', detail: 'configure merge.required_checks' };
+  if (!text) return { status: 'fail', detail: 'missing .github/workflows/flow-merge.yml (run flow-setup)' };
+  const need = ['pull_request_target', 'pull_request.base.sha', 'verdict.js ci', 'check-ci.js', 'merge.js run'];
+  const missing = need.filter((n) => !text.includes(n));
+  return missing.length ? { status: 'fail', detail: `flow-merge.yml lacks ${missing.join(', ')} (run flow-setup)` } : { status: 'ok' };
+}
+
 export function guardBlocks(guardPath) {
   const run = (command) => spawnSync('node', [guardPath], { input: JSON.stringify({ tool_name: 'Bash', tool_input: { command } }), encoding: 'utf8' });
   const bad = run('git push --force origin main'); const good = run('git status');
@@ -58,7 +67,7 @@ function run(ci) {
   const hp = spawnSync('git', ['config', 'core.hooksPath'], { encoding: 'utf8' }).stdout.trim();
   const hookOk = hp === '.githooks' && existsSync('.githooks/pre-push') && (statSync('.githooks/pre-push').mode & 0o111) !== 0;
   add('git pre-push hook active', hookOk ? { status: 'ok' } : { status: 'fail', detail: 'core.hooksPath must be .githooks and .githooks/pre-push executable (run flow-setup)' });
-  add('CI workflow installed', existsSync('.github/workflows/flow-gates.yml') ? { status: 'ok' } : { status: 'fail', detail: 'missing .github/workflows/flow-gates.yml' });
+  add('CI gates workflow installed', existsSync('.github/workflows/flow-gates.yml') ? { status: 'ok' } : { status: 'fail', detail: 'missing .github/workflows/flow-gates.yml' });
 
   const cs = existsSync('.claude/settings.json') ? JSON.parse(readFileSync('.claude/settings.json', 'utf8')) : {};
   const hasHook = JSON.stringify(cs.hooks ?? {}).includes('guard-destructive.js');
@@ -80,13 +89,12 @@ function run(ci) {
     add('workspace: orca CLI installed', orca.status === 0 ? { status: 'ok' } : { status: 'warn', detail: 'workspace is "orca" but the orca CLI was not found; /flow-run cannot open worktrees in Orca' });
   }
 
-  const workflow = existsSync('.github/workflows/flow-gates.yml') ? readFileSync('.github/workflows/flow-gates.yml', 'utf8') : '';
+  const read = (p) => (existsSync(p) ? readFileSync(p, 'utf8') : '');
+  const workflow = read('.github/workflows/flow-gates.yml');
   const configuredChecks = requiredChecks(cfg);
   const hubMode = cfg.topology === 'multi' && !process.env.FLOW_TARGET;
-  const ciGateOk = hubMode
-    ? workflow.includes('gates.js docs')
-    : Array.isArray(configuredChecks) && configuredChecks.length > 0 && workflow.includes('check-ci.js') && workflow.includes('merge.js run');
-  add(hubMode ? 'hub document CI' : 'script-based CI merge gate', ciGateOk ? { status: 'ok' } : { status: 'fail', detail: hubMode ? 'install the hub flow-gates workflow' : 'configure merge.required_checks and install check-ci.js before merge.js run' });
+  if (hubMode) add('hub document CI', workflow.includes('gates.js docs') ? { status: 'ok' } : { status: 'fail', detail: 'install the hub flow-gates workflow' });
+  else add('base-branch CI merge gate', checkMergeWorkflow(read('.github/workflows/flow-merge.yml'), configuredChecks));
   return out;
 }
 

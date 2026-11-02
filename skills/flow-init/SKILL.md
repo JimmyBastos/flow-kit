@@ -35,7 +35,7 @@ Read representative code. Reuse existing `docs/rules/`. Add only rules needed fo
 2. Write `AGENTS.md` (template + the project specifics from step 1). `CLAUDE.md` contains only `@AGENTS.md`.
 3. Create the configured flow folder, `backlog.md`, `active/`, `done/`, and `decisions/`.
 4. Insert target-specific toolchain and install steps in the CI template. For a multi target, run setup with `FLOW_CONFIG` and `FLOW_TARGET` set. Setup embeds a CI-only config projection, so target CI does not need hub credentials.
-5. Tell the user how to export `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=<pct>`. Explain that the script blocks flow-managed merges when configured CI checks are missing or failing. Manual GitHub merges can bypass the script.
+5. Tell the user how to export `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=<pct>`. Explain the two workflows: `flow-gates.yml` runs the code, and `flow-merge.yml` judges and merges with base-branch code. The merge job blocks when configured CI checks are missing or failing. Manual GitHub merges can bypass it. Merges made with `GITHUB_TOKEN` do not start `on: push` deploy workflows, so name the deploy option (a GitHub App token, or `on: workflow_run`).
 6. Run `node scripts/flow/doctor.js`. Report every FAIL and WARN verbatim. Init is not done while any FAIL remains.
 
 Commit as one commit: `chore(flow): initialize flow-kit`. Do not push.

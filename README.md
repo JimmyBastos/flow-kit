@@ -75,18 +75,19 @@ You are needed to approve the code rules, the spec, and the plan, to answer rese
 
 ## What the scripts check
 
-They are installed in your project in `scripts/flow/`, together with the git hooks and the CI workflow.
+They are installed in your project in `scripts/flow/`, together with the git hooks and two CI workflows. `flow-gates.yml` runs the pull request's code with a read-only token. `flow-merge.yml` judges and merges, and it runs only code from the base branch.
 
 | What is guaranteed | How |
 |---|---|
 | The gates ran on every pull request | The `flow-gates` CI workflow runs the target gates |
+| A pull request cannot change the code that judges it | `flow-merge` uses `pull_request_target`, so GitHub runs the workflow file and the scripts from the base branch. It reads the pull request's files as data and never runs them |
 | Flow-managed merges require named CI checks | `check-ci.js` blocks the merge job when a configured check is missing, pending, or failed |
-| A review happened, passed, and covers the code that is merging | `verdict.js ci` checks that the verdict exists, is valid, and was made for the latest commit. If the code changed after the review, the pull request is rejected |
-| Files stay small enough to review | A spec and each plan have at most 60 lines. A task changes at most 300 lines. If the work does not fit, it is split, never shortened to fit |
-| A bug fix starts with a test that fails | `gates.js testfirst` requires the failing test to come before the fix |
-| No force push, hard reset, `git clean`, deleting flow data or `docs/`, or reading secrets | `guard-destructive.js` and the git `pre-push` hook block them |
-| The AI cannot change its own checks | `merge.js` always waits for a human to merge changes to the config, CI, hooks, and rules |
-| Plain language in specs, plans, and tasks | `gates.js text` flags sentences over 25 words and a list of vague words. It is a word list, so it can raise false alarms |
+| Every task branch was reviewed, the review passed, and it covers the code that is merging | `verdict.js ci` requires the verdict of the task named by the branch `flow/<slug>/<id>`. It must be valid and made for the latest code commit |
+| Files stay small enough to review | A spec and each plan have at most 60 lines. A task changes at most 300 lines of code; test lines are reported but not counted. If the work does not fit, it is split, never shortened to fit |
+| A bug fix starts with a test that fails | `gates.js testfirst` requires the test commit before the fix. `--prove` runs the gates without the fix and requires a failure |
+| The AI cannot change its own checks | The merge job always waits for a human to merge changes to the config, CI, hooks, scripts, and rules |
+| Low-risk pull requests merge without a person | The merge job runs `gh pr merge --squash` itself. It needs no repository auto-merge setting and no branch protection |
+| No force push, hard reset, `git clean`, deleting flow data or `docs/`, local merges, or reading secrets by accident | `guard-destructive.js` and the git `pre-push` hook block them. The guard reads command lines, so it prevents accidents; it is not a security boundary |
 
 ### Limits
 
@@ -96,6 +97,7 @@ They are installed in your project in `scripts/flow/`, together with the git hoo
 - CI does not run end-to-end tests by default. `/flow-review` runs the `e2e` command of a target on your machine. To run it in CI, add the same command to `gates`.
 - The CI script cannot block a person from merging manually in the hosting service. Branch rules can add that protection when available.
 - Auto-merge relies on your gates. If your tests are weak, a bad change can merge.
+- GitHub does not start new workflow runs for actions made with `GITHUB_TOKEN`. A merge by the merge job does not trigger `on: push` deploy workflows. Deploy with a GitHub App token, or start the deploy `on: workflow_run` of `flow-merge`.
 
 ## Configuration
 

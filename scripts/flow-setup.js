@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Installs flow-kit's enforcement layer into the current project. Idempotent. Run from the project root.
 //   node <kit>/scripts/flow-setup.js [--dry-run]
-// Writes: scripts/flow/*, .githooks/pre-push (+ core.hooksPath), .github/workflows/flow-gates.yml,
+// Writes: scripts/flow/*, .githooks/pre-push (+ core.hooksPath), .github/workflows/flow-{gates,merge}.yml,
 //         .claude/settings.json (hooks + secret deny), .codex/config.toml, opencode.json, CLAUDE.md, .claude/skills link.
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync, chmodSync, lstatSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -41,11 +41,14 @@ act('install .githooks/pre-push and set core.hooksPath', () => {
 });
 
 // 3. CI: the gates run on every PR whether or not an agent ran them locally
-act('install .github/workflows/flow-gates.yml', () => {
+// flow-gates.yml runs the pull request's code; flow-merge.yml judges and merges with base-branch code only.
+act('install .github/workflows/flow-gates.yml and flow-merge.yml', () => {
   mkdirSync('.github/workflows', { recursive: true });
   let workflow;
+  let mergeWorkflow = null;
   if (cfg.topology !== 'multi') {
     workflow = readFileSync(join(kit, 'templates/ci/github.yml'), 'utf8');
+    mergeWorkflow = readFileSync(join(kit, 'templates/ci/github-merge.yml'), 'utf8');
   } else if (process.env.FLOW_TARGET) {
     const target = cfg.targets.find((item) => item.tag === process.env.FLOW_TARGET);
     if (!target) throw new Error(`FLOW_TARGET is not configured: ${process.env.FLOW_TARGET}`);
@@ -54,13 +57,16 @@ act('install .github/workflows/flow-gates.yml', () => {
       tracker: 'none', workspace: cfg.workspace, fallback: cfg.fallback, limits: cfg.limits,
       compaction: cfg.compaction, approvals: cfg.approvals, merge: cfg.merge, test_globs: cfg.test_globs,
     };
-    workflow = readFileSync(join(kit, 'templates/ci/github-multi.yml'), 'utf8')
+    const fill = (file) => readFileSync(join(kit, 'templates/ci', file), 'utf8')
       .replaceAll('__FLOW_TARGET__', target.tag)
       .replaceAll('__FLOW_CONFIG_B64__', Buffer.from(JSON.stringify(ciConfig)).toString('base64'));
+    workflow = fill('github-multi.yml');
+    mergeWorkflow = fill('github-multi-merge.yml');
   } else {
     workflow = readFileSync(join(kit, 'templates/ci/github-hub.yml'), 'utf8');
   }
   writeFileSync('.github/workflows/flow-gates.yml', workflow);
+  if (mergeWorkflow) writeFileSync('.github/workflows/flow-merge.yml', mergeWorkflow);
 });
 
 // 4. harness config

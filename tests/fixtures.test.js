@@ -41,7 +41,11 @@ function prepare(kind) {
     assert.match(workflow, /FLOW_CONFIG_B64/);
     assert.match(workflow, /if: github\.event_name == 'pull_request' && startsWith\(github\.head_ref, 'flow\/'\)/);
     assert.doesNotMatch(workflow, /FLOW_HUB_READ_TOKEN|actions\/checkout@v4\n\s+with:\n\s+repository:/);
+    const mergeWorkflow = readFileSync(join(code, '.github/workflows/flow-merge.yml'), 'utf8');
+    assert.match(mergeWorkflow, /pull_request_target:/);
+    assert.match(mergeWorkflow, /FLOW_TARGET: api/);
     const configB64 = workflow.match(/FLOW_CONFIG_B64: ([A-Za-z0-9+/=]+)/)?.[1];
+    assert.equal(mergeWorkflow.match(/FLOW_CONFIG_B64: ([A-Za-z0-9+/=]+)/)?.[1], configB64, 'both workflows embed the same config projection');
     assert.ok(configB64, 'target workflow embeds its CI-only config projection');
     const ciEnv = { FLOW_CONFIG_B64: configB64, FLOW_DIR: join(code, '.flow'), FLOW_TARGET: 'api' };
     assert.equal(flow(code, 'doctor.js', ['--ci'], ciEnv).status, 0);
@@ -115,6 +119,46 @@ for (const kind of ['single', 'monorepo', 'multi']) {
     const ci = flow(c.code, 'verdict.js', ['ci', 'origin/main'], c.env);
     assert.equal(ci.status, 1);
     assert.match(ci.out, /code changed after review/);
+  });
+
+  test(`[${kind}] a flow PR that leaves out its task folder still needs its verdict`, () => {
+    const c = prepare(kind);
+    git(c.code, 'checkout', '-q', '-b', 'flow/f/3');
+    commit(c.code, { [c.newProd]: 'export const x = 1;\n' }, 'feat: code only, no .flow files');
+    const ci = flow(c.code, 'verdict.js', ['ci', 'origin/main'], c.env);
+    assert.equal(ci.status, 1, ci.out);
+    assert.match(ci.out, /\.flow\/active\/f\/tasks\/3: no verdict\.json/);
+    // CI judges from the base checkout and reads the pull request as data (--head), never running it
+    const reviewed = git(c.code, 'rev-parse', 'HEAD').stdout.trim();
+    commit(c.code, { '.flow/active/f/tasks/3/verdict.json': verdictJson(reviewed) }, 'chore(flow): review f/3 pass');
+    git(c.code, 'checkout', '-q', 'main');
+    const asData = flow(c.code, 'verdict.js', ['ci', 'origin/main', '--branch', 'flow/f/3', '--head', 'flow/f/3'], c.env);
+    assert.equal(asData.status, 0, asData.out);
+    assert.equal(flow(c.code, 'verdict.js', ['ci', 'origin/main', '--branch', 'flow/oops', '--head', 'flow/f/3'], c.env).status, 1, 'flow branches must be named flow/<slug>/<id>');
+  });
+
+  test(`[${kind}] --prove: the test must fail without the fix`, () => {
+    const c = prepare(kind);
+    const n = nameOf(c);
+    git(c.code, 'checkout', '-q', '-b', 'flow/f/good');
+    commit(c.code, { [c.newTest]: newTest(n) }, 'test: failing repro');
+    commit(c.code, { [c.newProd]: `export const ${n} = (x) => x + 1;\n` }, 'fix');
+    const good = flow(c.code, 'gates.js', ['testfirst', '--base', 'origin/main', '--prove', '--target', c.tag], c.env);
+    assert.equal(good.status, 0, good.out);
+    assert.equal(git(c.code, 'status', '--porcelain').stdout, '', 'prove must restore the working tree');
+    assert.ok(existsSync(join(c.code, c.newProd)));
+
+    git(c.code, 'checkout', '-q', 'main'); git(c.code, 'checkout', '-q', '-b', 'flow/f/fake');
+    commit(c.code, { [c.newTest]: "import test from 'node:test';\ntest('always passes', () => {});\n" }, 'test: does not reproduce');
+    commit(c.code, { [c.newProd]: `export const ${n} = (x) => x + 1;\n` }, 'fix');
+    const fake = flow(c.code, 'gates.js', ['testfirst', '--base', 'origin/main', '--prove', '--target', c.tag], c.env);
+    assert.equal(fake.status, 1, fake.out);
+    assert.match(fake.out, /does not reproduce/);
+    assert.equal(git(c.code, 'status', '--porcelain').stdout, '');
+
+    git(c.code, 'checkout', '-q', 'main'); git(c.code, 'checkout', '-q', '-b', 'flow/f/feature');
+    commit(c.code, { [c.newProd]: 'export const y = 1;\n' }, 'feat: no test-first shape');
+    assert.equal(flow(c.code, 'gates.js', ['testfirst', '--base', 'origin/main', '--prove', '--optional', '--target', c.tag], c.env).status, 0, 'CI skips branches without test-first commits');
   });
 
   test(`[${kind}] missing, failing and malformed verdicts never pass CI`, () => {
