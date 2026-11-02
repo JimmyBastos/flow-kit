@@ -124,7 +124,7 @@ export function checkTestFirst(commits, testGlobs) {
 export function proveTestFails({ testCommit, testGlobs, targets, cfg }) {
   const isTest = (f) => matchesAny(f, testGlobs);
   const existsAt = (ref, f) => spawnSync('git', ['cat-file', '-e', `${ref}:${f}`]).status === 0;
-  if (git(['status', '--porcelain']).trim()) return { ok: false, reason: '--prove needs a clean working tree; commit or stash first' };
+  if (git(['status', '--porcelain', '--untracked-files=no']).trim()) return { ok: false, reason: '--prove needs a clean working tree (tracked files); commit or stash first' };
   const root = git(['rev-parse', '--show-toplevel']).trim();
   const files = git(['diff', '--name-only', testCommit, 'HEAD']).split('\n').filter((f) => f && !isTest(f) && !isMetaFile(f));
   if (!files.length) return { ok: false, reason: `no production change after test commit ${testCommit.slice(0, 7)}` };

@@ -2,7 +2,7 @@
 // No LLM is involved: this validates the machine side of the loop (gates, state, verdicts, merge-by-risk, push guards).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { makeRepo, commit, git, flow, setup, bootstrapPush, sh } from './helpers/repo.js';
@@ -157,8 +157,10 @@ for (const kind of ['single', 'monorepo', 'multi']) {
     git(c.code, 'checkout', '-q', '-b', 'flow/f/good');
     commit(c.code, { [c.newTest]: newTest(n) }, 'test: failing repro');
     commit(c.code, { [c.newProd]: `export const ${n} = (x) => x + 1;\n` }, 'fix');
+    writeFileSync(join(c.code, 'build-output.log'), 'untracked files from CI steps do not block the proof\n');
     const good = flow(c.code, 'gates.js', ['testfirst', '--base', 'origin/main', '--prove', '--target', c.tag], c.env);
     assert.equal(good.status, 0, good.out);
+    rmSync(join(c.code, 'build-output.log'));
     assert.equal(git(c.code, 'status', '--porcelain').stdout, '', 'prove must restore the working tree');
     assert.ok(existsSync(join(c.code, c.newProd)));
 
