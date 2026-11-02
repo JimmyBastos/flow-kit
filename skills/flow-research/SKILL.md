@@ -5,15 +5,17 @@ description: Gather context for a new idea and interview the user in rounds unti
 
 # flow-research
 
-Input: a slug and a rough idea. Output: `.flow/active/<slug>/research.md` (template: `templates/research.md`), or a line in `.flow/backlog.md` if the idea is real but not now.
+Input: a slug and a rough idea. Output: `<flow_dir>/active/<slug>/research.md` (template: `templates/research.md`), or a line in `<flow_dir>/backlog.md` if the idea is real but not now.
+
+Use the `research` capability to lead the interview and the investigation. Hand code reading to research subagents (`scripts/flow/adapters/harness.md`, Subagents): one per repo or question. The config selects harness and model candidates.
 
 ## Procedure
-1. **Look before asking.** Search the repos in `flow.config.yaml` for existing code, rules, ADRs, tracker issues and prior features (`.flow/done/`) that touch the idea. Note findings with file paths. Never ask a question the code or docs already answer.
-2. **Interview in rounds.** Each round: at most 4 questions, each with a recommended answer and why, each one whose answer would change what gets built. Prefer multiple-choice. After each answer, update `research.md` and decide whether another round is needed. Stop when you could write a spec without guessing. Typical coverage: who is the user, what hurts today, what "done" looks like, what is explicitly out, constraints (deadline, compatibility, data), risks.
+1. **Look before asking.** Search the repos in `flow.config.yaml` for existing code, rules, decisions in `<flow_dir>/decisions/`, tracker issues and prior features (`<flow_dir>/done/`) that touch the idea. Note findings with file paths. Never ask a question the code or docs already answer.
+2. **Grill the idea.** Build a small decision tree. Ask only questions whose answers change scope, success criteria, or a material trade-off. Ask the current set of answerable questions in rounds of at most 4. Give a recommended option and why. After every answer, update `research.md` and recompute the next questions. Do not ask facts that code or docs can answer.
 3. **Challenge.** If the idea duplicates something that exists, conflicts with a rule or invariant, or looks bigger than one spec (needs more than about 60 lines), say so and propose a split or a smaller first slice.
-4. **Close.** Write a 3-line recommendation: build / defer / do not build. If defer, add a backlog entry (`slug | problem | why not now | trigger`) and stop. If build, tell the user to run `/flow-spec <slug>`.
+4. **Close.** Record settled decisions and unresolved questions in `research.md`. Write a 3-line recommendation: build / defer / do not build. If defer, add a backlog entry using `templates/backlog.md`, rank by impact and urgency, respect dependencies and triggers, then stop. If build, tell the user to run `/flow-spec <slug>`.
 
-Rules: this step is interactive by nature (the user's answers are the output). Do not invent answers. Do not write code. Mark every unresolved item under "Open questions"; flow-spec refuses to start with open questions that block scope.
+Rules: this step is interactive by nature (the user's answers are the output). Do not invent answers. Do not write code. Stop asking when no unresolved decision can change the spec. Mark unresolved blockers under "Open questions"; flow-spec refuses to start with open questions that block scope.
 
 ## Writing
 Follow the Writing section of `AGENTS.md`: plain words, named things, short complete sentences, the decision first.

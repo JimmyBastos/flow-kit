@@ -2,7 +2,7 @@
 // No LLM is involved: this validates the machine side of the loop (gates, state, verdicts, merge-by-risk, push guards).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { makeRepo, commit, git, flow, setup, bootstrapPush, sh } from './helpers/repo.js';
@@ -34,8 +34,22 @@ function prepare(kind) {
     const hub = makeRepo('multi/hub', root, 'hub');
     const code = makeRepo('multi/api', root, 'api');
     makeRepo('multi/app', root, 'app');
-    const env = { FLOW_ROOT: hub, FLOW_CONFIG: join(hub, 'flow.config.yaml') };
+    const env = { FLOW_DIR: join(hub, '.flow'), FLOW_CONFIG: join(hub, 'flow.config.yaml'), FLOW_TARGET: 'api' };
     assert.equal(setup(code, env).status, 0);
+    const workflow = readFileSync(join(code, '.github/workflows/flow-gates.yml'), 'utf8');
+    assert.match(workflow, /FLOW_TARGET: api/);
+    assert.match(workflow, /FLOW_CONFIG_B64/);
+    assert.match(workflow, /if: github\.event_name == 'pull_request' && startsWith\(github\.head_ref, 'flow\/'\)/);
+    assert.doesNotMatch(workflow, /FLOW_HUB_READ_TOKEN|actions\/checkout@v4\n\s+with:\n\s+repository:/);
+    const mergeWorkflow = readFileSync(join(code, '.github/workflows/flow-merge.yml'), 'utf8');
+    assert.match(mergeWorkflow, /pull_request_target:/);
+    assert.match(mergeWorkflow, /FLOW_TARGET: api/);
+    const configB64 = workflow.match(/FLOW_CONFIG_B64: ([A-Za-z0-9+/=]+)/)?.[1];
+    assert.equal(mergeWorkflow.match(/FLOW_CONFIG_B64: ([A-Za-z0-9+/=]+)/)?.[1], configB64, 'both workflows embed the same config projection');
+    assert.ok(configB64, 'target workflow embeds its CI-only config projection');
+    const ciEnv = { FLOW_CONFIG_B64: configB64, FLOW_DIR: join(code, '.flow'), FLOW_TARGET: 'api' };
+    assert.equal(flow(code, 'doctor.js', ['--ci'], ciEnv).status, 0);
+    assert.equal(flow(code, 'gates.js', ['run', '--target', 'api'], ciEnv).status, 0);
     git(code, 'add', '-A'); git(code, 'commit', '-qm', 'chore: flow setup'); bootstrapPush(code);
     commit(hub, { '.flow/active/f/tasks.md': TASKS.replaceAll('TAG', 'api') }, 'docs(flow): tasks f');
     return { kind, code, hub, env, tag: 'api', prod: 'src/rest.js', prodBad: 'export const rest = (x) => x;\n', test: 'tests/rest.test.js', newTest: 'tests/rest2.test.js', newProd: 'src/rest2.js' };
@@ -66,10 +80,10 @@ for (const kind of ['single', 'monorepo', 'multi']) {
     const g = flow(c.code, 'gates.js', ['run', '--target', c.tag], c.env);
     assert.equal(g.status, 0, g.out);
     // guard against vacuous gates: the tests must actually have run (fixture 1 test + the one added here)
-    assert.match(JSON.parse(g.stdout).results[0].output, /ℹ pass 2/, 'gate passed without running the tests');
+    assert.match(JSON.parse(g.stdout).results[0].output, /(?:#|ℹ) pass 2/, 'gate passed without running the tests');
     assert.equal(flow(c.code, 'gates.js', ['diff', '--base', 'origin/main'], c.env).status, 0);
 
-    // state is written through FLOW_ROOT (hub in multi), never in tasks.md
+    // shared state is written through FLOW_DIR, never in tasks.md
     const w = flow(c.code, 'flow-state.js', ['write', 'f', '1', 'status=in_progress', 'branch=flow/f/1', 'next_step=review', 'next_harness=codex'], c.env);
     assert.equal(w.status, 0, w.out);
     assert.ok(existsSync(join(c.hub, '.flow/active/f/tasks/1/state.md')));
@@ -105,6 +119,62 @@ for (const kind of ['single', 'monorepo', 'multi']) {
     const ci = flow(c.code, 'verdict.js', ['ci', 'origin/main'], c.env);
     assert.equal(ci.status, 1);
     assert.match(ci.out, /code changed after review/);
+  });
+
+  test(`[${kind}] feature check and queue work through FLOW_DIR`, () => {
+    const c = prepare(kind);
+    const chk = (env = c.env) => flow(c.code, 'gates.js', ['check', '--feature', 'f'], env);
+    assert.equal(chk().status, 1, 'no spec yet');
+    commit(c.hub, { '.flow/active/f/spec.md': '# Spec: f\n\n## Success criteria\n- SC-1: works\n' }, 'docs(flow): spec f');
+    const ok = chk();
+    assert.equal(ok.status, 0, ok.out);
+    const queue = '| Slug | Status | Depends on | Requirement |\n|---|---|---|---|\n| f | approved | - | the f feature |\n| g | approved | f | after f |\n';
+    commit(c.hub, { '.flow/queue.md': queue }, 'docs(flow): queue');
+    assert.equal(JSON.parse(flow(c.code, 'flow-state.js', ['queue'], c.env).stdout).next, 'f');
+    assert.equal(JSON.parse(flow(c.code, 'flow-state.js', ['queue', 'f', 'done'], c.env).stdout).next, 'g');
+    assert.match(readFileSync(join(c.hub, '.flow/queue.md'), 'utf8'), /\| f \| done \|/);
+  });
+
+  test(`[${kind}] a flow PR that leaves out its task folder still needs its verdict`, () => {
+    const c = prepare(kind);
+    git(c.code, 'checkout', '-q', '-b', 'flow/f/3');
+    commit(c.code, { [c.newProd]: 'export const x = 1;\n' }, 'feat: code only, no .flow files');
+    const ci = flow(c.code, 'verdict.js', ['ci', 'origin/main'], c.env);
+    assert.equal(ci.status, 1, ci.out);
+    assert.match(ci.out, /\.flow\/active\/f\/tasks\/3: no verdict\.json/);
+    // CI judges from the base checkout and reads the pull request as data (--head), never running it
+    const reviewed = git(c.code, 'rev-parse', 'HEAD').stdout.trim();
+    commit(c.code, { '.flow/active/f/tasks/3/verdict.json': verdictJson(reviewed) }, 'chore(flow): review f/3 pass');
+    git(c.code, 'checkout', '-q', 'main');
+    const asData = flow(c.code, 'verdict.js', ['ci', 'origin/main', '--branch', 'flow/f/3', '--head', 'flow/f/3'], c.env);
+    assert.equal(asData.status, 0, asData.out);
+    assert.equal(flow(c.code, 'verdict.js', ['ci', 'origin/main', '--branch', 'flow/oops', '--head', 'flow/f/3'], c.env).status, 1, 'flow branches must be named flow/<slug>/<id>');
+  });
+
+  test(`[${kind}] --prove: the test must fail without the fix`, () => {
+    const c = prepare(kind);
+    const n = nameOf(c);
+    git(c.code, 'checkout', '-q', '-b', 'flow/f/good');
+    commit(c.code, { [c.newTest]: newTest(n) }, 'test: failing repro');
+    commit(c.code, { [c.newProd]: `export const ${n} = (x) => x + 1;\n` }, 'fix');
+    writeFileSync(join(c.code, 'build-output.log'), 'untracked files from CI steps do not block the proof\n');
+    const good = flow(c.code, 'gates.js', ['testfirst', '--base', 'origin/main', '--prove', '--target', c.tag], c.env);
+    assert.equal(good.status, 0, good.out);
+    rmSync(join(c.code, 'build-output.log'));
+    assert.equal(git(c.code, 'status', '--porcelain').stdout, '', 'prove must restore the working tree');
+    assert.ok(existsSync(join(c.code, c.newProd)));
+
+    git(c.code, 'checkout', '-q', 'main'); git(c.code, 'checkout', '-q', '-b', 'flow/f/fake');
+    commit(c.code, { [c.newTest]: "import test from 'node:test';\ntest('always passes', () => {});\n" }, 'test: does not reproduce');
+    commit(c.code, { [c.newProd]: `export const ${n} = (x) => x + 1;\n` }, 'fix');
+    const fake = flow(c.code, 'gates.js', ['testfirst', '--base', 'origin/main', '--prove', '--target', c.tag], c.env);
+    assert.equal(fake.status, 1, fake.out);
+    assert.match(fake.out, /does not reproduce/);
+    assert.equal(git(c.code, 'status', '--porcelain').stdout, '');
+
+    git(c.code, 'checkout', '-q', 'main'); git(c.code, 'checkout', '-q', '-b', 'flow/f/feature');
+    commit(c.code, { [c.newProd]: 'export const y = 1;\n' }, 'feat: no test-first shape');
+    assert.equal(flow(c.code, 'gates.js', ['testfirst', '--base', 'origin/main', '--prove', '--optional', '--target', c.tag], c.env).status, 0, 'CI skips branches without test-first commits');
   });
 
   test(`[${kind}] missing, failing and malformed verdicts never pass CI`, () => {

@@ -4,10 +4,13 @@
 //   node flow-state.js read   <slug> <id>                   print state as JSON
 //   node flow-state.js ask    <slug> <id> "question" [--options "a|b"]   append to questions.md, mark blocked
 //   node flow-state.js status <slug>                        derive feature status from tasks.md + merged states
+//   node flow-state.js queue [<slug> <status>]              print the feature queue and the next runnable feature, or set a row
 // A task branch writes ONLY tasks/<id>/{state,questions}.md. tasks.md is read-only during runs.
 import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from './lib/miniyaml.js';
+import { flowDir } from './lib/config.js';
 
 const STATUSES = ['todo', 'in_progress', 'blocked', 'done'];
 const FIELDS = ['task', 'status', 'branch', 'last_commit', 'steps_done', 'next_step', 'next_harness', 'attempts', 'questions'];
@@ -56,9 +59,57 @@ export function deriveStatus(tasks, states) {
   };
 }
 
-// multi topology: the agent runs in a target worktree but state lives in the hub -> FLOW_ROOT=<hub path>
-const ROOT = process.env.FLOW_ROOT ?? '.';
-const dir = (slug, id) => `${ROOT}/.flow/active/${slug}/tasks/${id}`;
+// queue.md: one table row per feature, in run order. /flow-intake writes it; /flow-run takes the next row.
+export const QUEUE_STATUSES = ['draft', 'approved', 'running', 'blocked', 'done'];
+
+export function parseQueue(markdown) {
+  const rows = [];
+  for (const line of markdown.split('\n')) {
+    if (!/^\|/.test(line) || /^\|\s*-/.test(line) || /^\|\s*Slug\s*\|/i.test(line)) continue;
+    const cells = line.split('|').slice(1, -1).map((c) => c.trim());
+    if (cells.length < 4 || !cells[0]) continue;
+    const depends = cells[2] && cells[2] !== '-' ? cells[2].split(',').map((d) => d.trim()).filter(Boolean) : [];
+    rows.push({ slug: cells[0], status: cells[1], depends_on: depends, requirement: cells.slice(3).join(' | ') });
+  }
+  return rows;
+}
+
+// A running feature resumes first; otherwise the first approved feature whose dependencies are all done.
+export function nextInQueue(rows) {
+  const problems = [];
+  const bySlug = new Map(rows.map((r) => [r.slug, r]));
+  for (const r of rows) {
+    if (!QUEUE_STATUSES.includes(r.status)) problems.push(`${r.slug}: status must be one of ${QUEUE_STATUSES.join(' | ')}`);
+    for (const d of r.depends_on) if (!bySlug.has(d)) problems.push(`${r.slug}: depends on unknown feature ${d}`);
+  }
+  const ready = (r) => r.depends_on.every((d) => bySlug.get(d)?.status === 'done');
+  const next = rows.find((r) => r.status === 'running') ?? rows.find((r) => r.status === 'approved' && ready(r)) ?? null;
+  const waiting = rows.filter((r) => r.status === 'approved' && !ready(r)).map((r) => r.slug);
+  return {
+    next: next?.slug ?? null, problems, waiting_on_dependencies: waiting,
+    blocked: rows.filter((r) => r.status === 'blocked').map((r) => r.slug),
+    drafts: rows.filter((r) => r.status === 'draft').map((r) => r.slug),
+    complete: rows.length > 0 && rows.every((r) => r.status === 'done'), rows,
+  };
+}
+
+export function setQueueStatus(markdown, slug, status) {
+  if (!QUEUE_STATUSES.includes(status)) throw new Error(`status must be one of ${QUEUE_STATUSES.join(' | ')}`);
+  let found = false;
+  const out = markdown.split('\n').map((line) => {
+    const cells = line.split('|');
+    if (cells.length < 6 || cells[1].trim() !== slug) return line;
+    found = true;
+    cells[2] = ` ${status} `;
+    return cells.join('|');
+  });
+  if (!found) throw new Error(`no queue row for ${slug}`);
+  return out.join('\n');
+}
+
+// FLOW_DIR points at the shared data directory.
+const ROOT = flowDir(null);
+const dir = (slug, id) => join(ROOT, 'active', slug, 'tasks', id);
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [cmd, slug, id, ...rest] = process.argv.slice(2);
@@ -86,11 +137,20 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const cur = existsSync(f) ? parseState(readFileSync(f, 'utf8')) : { task: id };
     writeFileSync(f, serializeState({ ...cur, status: 'blocked', next_step: cur.next_step ?? 'answer questions.md', questions: 'questions.md' }));
   } else if (cmd === 'status') {
-    const base = `${ROOT}/.flow/active/${slug}`;
-    const tasks = parseTasks(readFileSync(`${base}/tasks.md`, 'utf8'));
+    const base = join(ROOT, 'active', slug);
+    const tasks = parseTasks(readFileSync(join(base, 'tasks.md'), 'utf8'));
     const states = {};
-    const td = `${base}/tasks`;
-    if (existsSync(td)) for (const d of readdirSync(td)) { const f = `${td}/${d}/state.md`; if (existsSync(f)) states[d] = parseState(readFileSync(f, 'utf8')); }
+    const td = join(base, 'tasks');
+    if (existsSync(td)) for (const d of readdirSync(td)) { const f = join(td, d, 'state.md'); if (existsSync(f)) states[d] = parseState(readFileSync(f, 'utf8')); }
     console.log(JSON.stringify(deriveStatus(tasks, states), null, 2));
-  } else { console.error('usage: flow-state.js write|read|ask|status'); process.exit(2); }
+  } else if (cmd === 'queue') {
+    const qf = join(ROOT, 'queue.md');
+    if (!existsSync(qf)) { console.error(`no queue: ${qf} (run /flow-intake)`); process.exit(3); }
+    if (slug) {
+      try { writeFileSync(qf, setQueueStatus(readFileSync(qf, 'utf8'), slug, id)); } catch (e) { console.error(e.message); process.exit(3); }
+    }
+    const r = nextInQueue(parseQueue(readFileSync(qf, 'utf8')));
+    console.log(JSON.stringify(r, null, 2));
+    process.exit(r.problems.length ? 3 : 0);
+  } else { console.error('usage: flow-state.js write|read|ask|status|queue'); process.exit(2); }
 }

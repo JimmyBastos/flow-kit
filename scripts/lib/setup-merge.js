@@ -23,26 +23,5 @@ export function mergeClaudeSettings(existing = {}) {
   return s;
 }
 
-// Codex: token count, not percent; interactive only.
-export function mergeCodexToml(existing = '', windowTokens, percent) {
-  const limit = Math.floor((windowTokens * percent) / 100);
-  const set = (text, key, value) => {
-    const re = new RegExp(`^${key}\\s*=.*$`, 'm');
-    return re.test(text) ? text.replace(re, `${key} = ${value}`) : `${text}${text && !text.endsWith('\n') ? '\n' : ''}${key} = ${value}\n`;
-  };
-  return set(set(existing, 'model_context_window', windowTokens), 'model_auto_compact_token_limit', limit);
-}
-
-// OpenCode: key name depends on major version (v1 "reserved", v2 "buffer"). Unknown version -> "reserved" + warning.
-export function mergeOpencodeJson(existing = {}, windowTokens, percent, majorVersion = null) {
-  const key = majorVersion !== null && majorVersion >= 2 ? 'buffer' : 'reserved';
-  const o = structuredClone(existing);
-  o.compaction = { ...(o.compaction ?? {}), auto: true, [key]: windowTokens - Math.floor((windowTokens * percent) / 100) };
-  const other = key === 'buffer' ? 'reserved' : 'buffer';
-  delete o.compaction[other];
-  return { json: o, key, verified: majorVersion !== null };
-}
-
 export const CLAUDE_MD = '@AGENTS.md\n';
 export const PRE_PUSH_HOOK = '#!/bin/sh\nexec node scripts/flow/pre-push.js "$@"\n';
-export const compactionEnvLine = (percent) => `export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=${percent}`;

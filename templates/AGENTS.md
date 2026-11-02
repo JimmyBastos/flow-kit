@@ -1,10 +1,10 @@
 # AGENTS.md
 
-This project uses flow-kit. Config: `flow.config.yaml`. Rules: `docs/rules/`. Work items: `.flow/`.
+This project uses flow-kit. Config: `flow.config.yaml`. Rules: `docs/rules/`. `flow_dir` in the config names the shared work folder; its default is `.flow/`.
 `CLAUDE.md` only imports this file; edit this one.
 
 ## Operating rules
-- One task per session. State lives in the repo (`.flow/active/<slug>/tasks/<id>/state.md`), never in the session.
+- One task per session. State lives under `<flow_dir>/active/<slug>/tasks/<id>/state.md`, never in the session.
 - First action in any fresh or compacted session on a `flow/*` branch: run `/flow-resume`.
 - Commit and update `state.md` after every step, not at the end.
 - Machine checks first (`scripts/flow/gates.js`), AI judgment second.
@@ -27,7 +27,6 @@ Everything you write is read by someone who has no context and little time, and 
 - Warnings and irreversible actions get full sentences, and say what happens if the reader goes ahead.
 - Explain a term the first time you use it. If a common word works, use it.
 - Read it aloud. If you would not say it to a colleague, rewrite it.
-- `node scripts/flow/gates.js text --feature <slug>` checks sentence length and a list of vague words.
 
 ### Terms
 | Use | Meaning | Not |
@@ -36,7 +35,7 @@ Everything you write is read by someone who has no context and little time, and 
 | gate | a command that must pass: lint, types, tests, build | check, guard |
 | hook | a script that a harness or git runs by itself | guard, trigger |
 | verdict | the file `verdict.json` that the review writes | review result, report |
-| finding | a problem found by `/flow-analyze`, `/flow-drift`, or `/flow-audit` | issue, flag |
+| finding | a problem found by `gates.js check`, `/flow-drift`, or `/flow-audit` | issue, flag |
 | violation | a problem in a verdict | finding |
 | rule | a line in `docs/rules/` | policy, guideline |
 | invariant | a rule that must hold in all the code | constraint, law |
@@ -48,15 +47,14 @@ Everything you write is read by someone who has no context and little time, and 
 | Point | Skill | Blocking |
 |---|---|---|
 | Code rules + invariants | flow-init | yes |
-| Research questions | flow-research | yes (answers needed) |
-| Spec | flow-spec | yes |
-| Plan | flow-plan | yes |
-| Analyze / drift findings | flow-analyze, flow-drift | by severity: block stops, ask continues, log records |
+| Spec and plans of each feature, approved together | flow-intake (one round for many features) or flow-plan | yes |
+| Questions that change scope | flow-intake, flow-research | yes (answers needed) |
+| Drift findings | flow-drift | by severity: block stops, ask continues, log records |
 | Question a plan does not cover | flow-run | yes, via questions.md |
 | Merge of a high-risk pull request | CI merge job | yes |
 
 ## Layout
-`.flow/backlog.md` | `.flow/active/<slug>/{research,spec,plan-<tag>,tasks,drift}.md` | `.flow/active/<slug>/tasks/<id>/{state,questions}.md + verdict.json` | `.flow/done/<slug>/`
+`<flow_dir>/queue.md` | `<flow_dir>/backlog.md` | `<flow_dir>/active/<slug>/{research,spec,plan-<tag>,tasks,drift}.md` | `<flow_dir>/decisions/` | `<flow_dir>/active/<slug>/tasks/<id>/{state,questions}.md + verdict.json` | `<flow_dir>/done/<slug>/`
 
 ## Commands
 Gates, test-first check, size caps: `node scripts/flow/gates.js run|testfirst|diff|size`. Health: `node scripts/flow/doctor.js`.

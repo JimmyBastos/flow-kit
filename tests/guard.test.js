@@ -32,6 +32,11 @@ test('sees through sh -c, command chains, subshells and xargs', () => {
     'ls | xargs rm -rf .flow', 'sudo git push -f', 'FOO=1 git push --force']) denied(c);
 });
 
+test('blocks local merges through gh; the CI merge job decides merges', () => {
+  for (const c of ['gh pr merge 12 --squash', 'gh -R org/repo pr merge 12', 'gh pr merge --auto', 'gh api -X PUT repos/o/r/pulls/12/merge', 'gh api repos/o/r/merges -f base=main']) denied(c);
+  for (const c of ['gh pr view 12', 'gh pr create --title x', 'gh pr checks 12', 'gh api repos/o/r/pulls/12']) allowed(c);
+});
+
 test('does not flag quoted text that merely mentions a command', () => {
   allowed('echo "do not git push --force"');
   allowed('git commit -m "docs: explain git reset --hard risks"');

@@ -7,8 +7,8 @@ description: Load a task's state from the repo so any harness can continue it af
 
 State lives in the repo, not in the session. Read it to get the context back, then continue; do not ask the user to re-explain.
 
-1. Identify the task: the branch must be `flow/<slug>/<id>` (else ask which task). In `multi` topology use `FLOW_ROOT=<hub>` for state.
-2. Read `.flow/active/<slug>/tasks/<id>/state.md` (task, status, branch, last_commit, steps_done, next_step, next_harness, attempts), `questions.md` if present, and `verdict.json` if present.
+1. Identify the task: the branch must be `flow/<slug>/<id>` (else ask which task). Set `FLOW_DIR` to the configured flow folder.
+2. Read `<flow_dir>/active/<slug>/tasks/<id>/state.md` (task, status, branch, last_commit, steps_done, next_step, next_harness, attempts), `questions.md` if present, and `verdict.json` if present.
 3. Read the task block in `tasks.md`, the `plan-<tag>.md` it belongs to, the spec's success criteria it cites.
 4. Compare reality with state: `git log --oneline <default>..HEAD`, `git status`, `git diff --stat <default>...HEAD`. If HEAD differs from `last_commit`, trust git, then correct `state.md`.
 5. If `questions.md` has an unanswered `answer:` and the status is `blocked`: stop and tell the user exactly which question is waiting. If answered: apply the answer, set `status=in_progress`, commit, continue.

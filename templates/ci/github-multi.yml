@@ -1,0 +1,33 @@
+# Installed in a target repo as .github/workflows/flow-gates.yml. FLOW_CONFIG_B64 is a generated CI-only
+# projection from the hub config. Runs the pull request's own code with a read-only token.
+# Judging the review and merging happen in flow-merge.yml, which runs only base-branch code.
+name: flow-gates
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    env:
+      FLOW_CONFIG_B64: __FLOW_CONFIG_B64__
+      FLOW_DIR: .flow
+      FLOW_TARGET: __FLOW_TARGET__
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      # flow-init inserts this target's package-manager setup and dependency install.
+      # >>> flow-init inserts stack setup steps here
+      - name: Validate flow configuration
+        run: node scripts/flow/doctor.js --ci
+      - name: Run this target's gates
+        run: node scripts/flow/gates.js run --target "$FLOW_TARGET"
+      - name: Test-first commits really reproduce the problem
+        if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'flow/')
+        run: node scripts/flow/gates.js testfirst --base "origin/${{ github.base_ref }}" --prove --optional --target "$FLOW_TARGET"

@@ -1,5 +1,5 @@
 topology: multi
-hub: .
+flow_dir: .flow
 targets:
   - tag: api
     path: ../api
@@ -8,8 +8,24 @@ targets:
     path: ../app
     gates: ["node --test"]
 tracker: none
-stages:
-  research:  { harness: claude-code, model: opus }
-  plan:      { harness: claude-code, model: opus }
-  implement: { harness: claude-code, model: opus }
-  review:    { harness: codex, model: gpt }
+capabilities:
+  planning:
+    candidates:
+      - harness: claude-code
+        model: opus
+  research:
+    candidates:
+      - harness: claude-code
+        model: opus
+    subagent_candidates:
+      - harness: claude-code
+        model: haiku
+  implementation:
+    candidates:
+      - harness: claude-code
+        model: sonnet
+  review:
+    prefer_different_harness: true
+    candidates:
+      - harness: opencode
+        model: opencode-go/glm-5.3

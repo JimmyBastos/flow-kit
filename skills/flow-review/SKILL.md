@@ -1,17 +1,19 @@
 ---
 name: flow-review
-description: Review a task's diff in a harness different from the one that implemented it. Machine gates first, then AI passes over tagged rules and invariants, writing a verdict.json. Use after flow-implement, in the review harness. Never edits code.
+description: Review a task's diff with the configured review capability, preferring a harness different from implementation. Run machine gates, check rules and invariants, then write verdict.json. Never edit code.
 ---
 
 # flow-review
 
-Read-only on code. You write exactly one file: `.flow/active/<slug>/tasks/<id>/verdict.json` (schema: `schemas/verdict.schema.json`), inside the CODE worktree you are reviewing, not under `FLOW_ROOT`. It travels with the pull request so the target repo's CI can check it is present, passing and fresh. Only `state.md` and `questions.md` go to the hub (via `flow-state.js`). Review in a new session, not in the session that implemented the task. If `state.md` shows this is the implementing session, stop and say so.
+Read-only on code. You write exactly one file: `.flow/active/<slug>/tasks/<id>/verdict.json` (schema: `schemas/verdict.schema.json`), inside the code worktree. This review artifact travels with the pull request so target CI can verify it. Shared state and decisions stay under `FLOW_DIR`. Review in a new session and prefer a different harness from implementation. If `state.md` shows this is the implementing session, stop and say so.
+
+Use the `review` capability selected for the task.
 
 ## Step 0: run the gates first (they are fast and give the same result every time)
 Run and capture, in order, stopping at the first failure:
 1. `node scripts/flow/gates.js run --target <tag> [--e2e]` (include `--e2e` when the target has an `e2e` command)
 2. `node scripts/flow/gates.js diff --base <default branch>`
-3. For `Type: fix` tasks: `node scripts/flow/gates.js testfirst --base <default branch>`
+3. For `Type: fix` tasks: `node scripts/flow/gates.js testfirst --base <default branch> --prove --target <tag>`. It needs a clean working tree, and it proves the test fails without the fix.
 If any fails: verdict `fail` with one violation `rule: GATE`, `severity: block`, `why:` the failing command and its last output lines. Do NOT run the AI passes. Write the verdict and stop.
 
 ## Pass 1: acceptance and rules

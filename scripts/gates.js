@@ -2,14 +2,17 @@
 // Machine checks that run BEFORE any AI judgment.
 //   node gates.js run   --target <tag> [--e2e]     run the target's gate commands, fail fast
 //   node gates.js size  --feature <slug>           spec/plan line caps
-//   node gates.js diff  --base origin/main         task diff-size cap
-//   node gates.js testfirst --base origin/main     fix tasks: failing test commit must precede the fix
-//   node gates.js text  --feature <slug>           plain-language check: long sentences, figurative or vague words
+//   node gates.js check --feature <slug>           size caps, SC coverage, task fields and tags, ticket text
+//   node gates.js diff  --base origin/main [--head <ref>]   task diff-size cap (test files reported apart)
+//   node gates.js testfirst --base origin/main [--prove [--target <tag>]] [--optional]
+//                                                  fix tasks: failing test commit must precede the fix;
+//                                                  --prove also runs the gates without the fix and requires a failure
 // Exit codes: 0 ok, 1 gate failed, 3 config error.
 import { spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync, existsSync } from 'node:fs';
+import { readdirSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadConfig } from './lib/config.js';
+import { flowDir, loadConfig, targetDir } from './lib/config.js';
 import { matchesAny } from './lib/glob.js';
 
 export function countLines(text) { return text.split('\n').filter((l, i, a) => !(i === a.length - 1 && l === '')).length; }
@@ -24,49 +27,125 @@ export function checkSizeCaps(files, limits) {
   return problems;
 }
 
-export const MAX_SENTENCE_WORDS = 25;
-const VAGUE = [/\btravels?\b/i, /\bpicks? up\b/i, /\bbacks? up\b/i, /\blives? in\b/i, /\beyeball/i, /\bsqueez/i, /\bpaper over\b/i, /\bsweep\b/i, /\bthe (result|state)\b/i];
+// Feature documents -> the mechanical checks a run needs before it starts. Judgement checks (scope,
+// not included, matching contracts) stay with the planning skill. Every problem blocks the run.
+const FILE_PATH = /(?:[\w.-]+\/)+[\w-]+\.\w{1,5}\b|\b[\w-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rb|java|kt|rs|php|cs|sql|ya?ml|json|toml)\b/;
+const LINE_REF = /\.\w{1,5}:\d+\b|\bline \d+\b/i;
+const ESTIMATE = /\b\d+(?:\.\d+)?\s?(?:h|hrs?|hours?|days?|pts?|points?|sp)\b/i;
 
-// Plain-language check for the docs people read. Skips front matter, code blocks, tables and inline code.
-export function checkText(files, maxWords = MAX_SENTENCE_WORDS) {
-  const problems = [];
-  for (const { name, text } of files) {
-    let inFence = false;
-    text.split('\n').forEach((raw, i) => {
-      if (/^```/.test(raw)) { inFence = !inFence; return; }
-      if (inFence || /^\s*\|/.test(raw) || /^#{1,6}\s/.test(raw)) return;
-      const line = raw.replace(/`[^`]*`/g, 'X').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
-      for (const sentence of line.split(/(?<=[.!?])\s+/)) {
-        const words = sentence.split(/\s+/).filter(Boolean).length;
-        if (words > maxWords) problems.push({ file: name, line: i + 1, kind: 'long_sentence', words, text: sentence.slice(0, 80) });
-      }
-      for (const re of VAGUE) { const m = line.match(re); if (m) problems.push({ file: name, line: i + 1, kind: 'vague_word', text: m[0] }); }
-    });
+export function parseTaskBlocks(markdown) {
+  const blocks = [];
+  let cur = null;
+  for (const line of markdown.split('\n')) {
+    const head = line.match(/^###\s+(\d+)\.\s+\[([^\]]+)\]\s+(.+)$/);
+    if (head) { cur = { id: head[1], tag: head[2], title: head[3].trim(), fields: {}, criteria: [] }; blocks.push(cur); continue; }
+    if (/^#{1,3}\s/.test(line)) { cur = null; continue; }
+    if (!cur) continue;
+    const field = line.match(/^-\s+(Goal|Context|Acceptance criteria|Type|Estimate):\s*(.*)$/);
+    if (field) { cur.fields[field[1]] = field[2].trim(); cur.last = field[1]; continue; }
+    if (cur.last === 'Acceptance criteria' && /^\s+-\s+/.test(line)) cur.criteria.push(line.trim().replace(/^-\s+/, ''));
   }
+  return blocks;
+}
+
+export function checkFeature({ spec = '', tasks = '', tags = [] }) {
+  const problems = [];
+  const add = (where, what) => problems.push({ where, what });
+  const specIds = new Set([...spec.matchAll(/^\s*-\s+\**(SC-\d+)\**\s*:/gm)].map((m) => m[1]));
+  if (!specIds.size) add('spec.md', 'no success criteria written as "- SC-n: ..."');
+  const blocks = parseTaskBlocks(tasks);
+  if (!blocks.length) add('tasks.md', 'no tasks written as "### N. [tag] Title"');
+  const cited = new Set();
+  for (const b of blocks) {
+    const at = `task ${b.id}`;
+    if (!tags.includes(b.tag)) add(at, `tag [${b.tag}] is not a target in flow.config.yaml`);
+    for (const f of ['Goal', 'Context', 'Type']) if (!b.fields[f]) add(at, `missing ${f}`);
+    if (b.fields.Type && !/^(feature|fix)\b/.test(b.fields.Type)) add(at, `Type must be feature or fix, not "${b.fields.Type}"`);
+    if (!b.criteria.length) add(at, 'missing Acceptance criteria');
+    for (const c of b.criteria) {
+      const ids = [...c.matchAll(/\[(SC-\d+)\]/g)].map((m) => m[1]);
+      if (!ids.length) add(at, `acceptance criterion cites no [SC-n]: "${c.slice(0, 60)}"`);
+      for (const id of ids) { cited.add(id); if (!specIds.has(id)) add(at, `cites ${id}, which the spec does not define`); }
+    }
+    const ticket = [b.title, b.fields.Goal ?? '', b.fields.Context ?? '', ...b.criteria].join('\n');
+    for (const [re, what] of [[FILE_PATH, 'a file path'], [LINE_REF, 'a line number'], [ESTIMATE, 'an estimate']]) {
+      const m = ticket.match(re);
+      if (m) add(at, `ticket text contains ${what} ("${m[0]}"); describe the product, not the code`);
+    }
+  }
+  for (const id of specIds) if (!cited.has(id)) add('coverage', `${id} is not cited by any task`);
   return problems;
 }
 
-// numstat: [{file, added, deleted}] -> excludes .flow/ and lockfiles (not reviewable code)
-export function checkDiffSize(numstat, maxLines) {
-  const counted = numstat.filter((r) => !r.file.startsWith('.flow/') && !/(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|uv\.lock|Cargo\.lock|go\.sum)$/.test(r.file));
-  const total = counted.reduce((s, r) => s + r.added + r.deleted, 0);
-  return { total, cap: maxLines, ok: total <= maxLines };
+export function collectFlowDocuments(root) {
+  const files = [];
+  const addMarkdown = (dir) => {
+    if (!existsSync(dir)) return;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) addMarkdown(path);
+      else if (entry.isFile() && entry.name.endsWith('.md')) files.push({ name: entry.name, text: readFileSync(path, 'utf8'), path });
+    }
+  };
+  addMarkdown(join(root, 'active'));
+  addMarkdown(join(root, 'decisions'));
+  return files;
 }
+
+// numstat: [{file, added, deleted}] -> excludes .flow/ and lockfiles (not reviewable code).
+// Test files are reported apart and do not count, so the cap never rewards writing fewer tests.
+export function checkDiffSize(numstat, maxLines, testGlobs = []) {
+  const counted = numstat.filter((r) => !r.file.startsWith('.flow/') && !/(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|uv\.lock|Cargo\.lock|go\.sum)$/.test(r.file));
+  const lines = (rows) => rows.reduce((s, r) => s + r.added + r.deleted, 0);
+  const isTest = (r) => matchesAny(r.file, testGlobs);
+  const total = lines(counted.filter((r) => !isTest(r)));
+  return { total, test_lines: lines(counted.filter(isTest)), cap: maxLines, ok: total <= maxLines };
+}
+
+const isMetaFile = (f) => f.startsWith('.flow/') || /\.(md|txt)$/.test(f);
 
 // commits: oldest -> newest, each {sha, files:[...]}. A fix must have a commit touching tests
 // strictly before the first commit touching production code.
 export function checkTestFirst(commits, testGlobs) {
-  const isMeta = (f) => f.startsWith('.flow/') || /\.(md|txt)$/.test(f);
   const isTest = (f) => matchesAny(f, testGlobs);
-  let seenTest = false;
+  let testCommit = null;
   for (const c of commits) {
-    const prod = c.files.filter((f) => !isTest(f) && !isMeta(f));
+    const prod = c.files.filter((f) => !isTest(f) && !isMetaFile(f));
     const tests = c.files.filter(isTest);
-    if (prod.length && tests.length && !seenTest) return { ok: false, sha: c.sha, reason: `commit ${c.sha.slice(0, 7)} mixes tests and production code; commit the failing test first, alone` };
-    if (prod.length && !seenTest) return { ok: false, sha: c.sha, reason: `commit ${c.sha.slice(0, 7)} changes production code (${prod[0]}) before any test commit` };
-    if (tests.length && !prod.length) seenTest = true;
+    if (prod.length && tests.length && !testCommit) return { ok: false, sha: c.sha, reason: `commit ${c.sha.slice(0, 7)} mixes tests and production code; commit the failing test first, alone` };
+    if (prod.length && !testCommit) return { ok: false, sha: c.sha, reason: `commit ${c.sha.slice(0, 7)} changes production code (${prod[0]}) before any test commit` };
+    if (tests.length && !prod.length && !testCommit) testCommit = c.sha;
   }
-  return seenTest ? { ok: true } : { ok: false, reason: 'no test commit found' };
+  return testCommit ? { ok: true, test_commit: testCommit } : { ok: false, reason: 'no test commit found' };
+}
+
+// Proves the test reproduces the problem: put the production files back as they were at the test commit,
+// run the gates, require a failure, then restore HEAD. Needs a clean tree, and touches only those files.
+export function proveTestFails({ testCommit, testGlobs, targets, cfg }) {
+  const isTest = (f) => matchesAny(f, testGlobs);
+  const existsAt = (ref, f) => spawnSync('git', ['cat-file', '-e', `${ref}:${f}`]).status === 0;
+  if (git(['status', '--porcelain', '--untracked-files=no']).trim()) return { ok: false, reason: '--prove needs a clean working tree (tracked files); commit or stash first' };
+  const root = git(['rev-parse', '--show-toplevel']).trim();
+  const files = git(['diff', '--name-only', testCommit, 'HEAD']).split('\n').filter((f) => f && !isTest(f) && !isMetaFile(f));
+  if (!files.length) return { ok: false, reason: `no production change after test commit ${testCommit.slice(0, 7)}` };
+  const place = (ref) => {
+    for (const f of files) {
+      if (existsAt(ref, f)) git(['-C', root, 'checkout', ref, '--', f]);
+      else rmSync(join(root, f), { force: true });
+    }
+  };
+  let results;
+  try {
+    place(testCommit);
+    results = targets.map((t) => ({ target: t.tag, ...runGates(t.gates, targetDir(cfg, t)) }));
+  } finally {
+    spawnSync('git', ['-C', root, 'reset', '-q', 'HEAD', '--', ...files]);
+    place('HEAD');
+  }
+  const failed = results.filter((r) => !r.ok).map((r) => r.target);
+  return failed.length
+    ? { ok: true, test_commit: testCommit, failed_without_fix: failed }
+    : { ok: false, test_commit: testCommit, reason: `the gates pass at ${testCommit.slice(0, 7)} without the fix; the test does not reproduce the problem` };
 }
 
 export function runGates(commands, cwd) {
@@ -97,27 +176,42 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const t = cfg.targets.find((x) => x.tag === arg('--target', cfg.targets[0].tag));
     if (!t) { console.error('unknown target'); process.exit(3); }
     const commands = [...t.gates, ...(rest.includes('--e2e') && t.e2e ? [t.e2e] : [])];
-    out = runGates(commands, t.path ?? '.');
+    out = runGates(commands, targetDir(cfg, t));
   } else if (cmd === 'size') {
-    const dir = `${cfg.hub ?? '.'}/.flow/active/${arg('--feature')}`;
-    const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.md')).map((name) => ({ name, text: readFileSync(`${dir}/${name}`, 'utf8') })) : [];
+    const dir = join(flowDir(cfg), 'active', arg('--feature'));
+    const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.md')).map((name) => ({ name, text: readFileSync(join(dir, name), 'utf8') })) : [];
     const problems = checkSizeCaps(files, cfg.limits);
     out = { ok: problems.length === 0, problems };
-  } else if (cmd === 'text') {
-    const dir = `${cfg.hub ?? '.'}/.flow/active/${arg('--feature')}`;
-    const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.md') && !['analyze.md', 'drift.md'].includes(f)).map((name) => ({ name, text: readFileSync(`${dir}/${name}`, 'utf8') })) : [];
-    const problems = checkText(files);
+  } else if (cmd === 'check') {
+    const dir = join(flowDir(cfg), 'active', arg('--feature'));
+    const read = (f) => (existsSync(join(dir, f)) ? readFileSync(join(dir, f), 'utf8') : '');
+    const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.md')).map((name) => ({ name, text: read(name) })) : [];
+    const size = checkSizeCaps(files, cfg.limits).map((p) => ({ where: p.file, what: `${p.lines} lines, cap ${p.cap}: ${p.fix}` }));
+    const problems = [...size, ...checkFeature({ spec: read('spec.md'), tasks: read('tasks.md'), tags: cfg.targets.map((t) => t.tag) })];
     out = { ok: problems.length === 0, problems };
+  } else if (cmd === 'docs') {
+    const files = collectFlowDocuments(flowDir(cfg));
+    const size = checkSizeCaps(files, cfg.limits);
+    out = { ok: size.length === 0, size };
   } else if (cmd === 'diff') {
     const base = arg('--base', 'origin/main');
-    const numstat = git(['diff', '--numstat', `${base}...HEAD`]).split('\n').filter(Boolean).map((l) => { const [a, d, f] = l.split('\t'); return { file: f, added: Number(a) || 0, deleted: Number(d) || 0 }; });
-    out = checkDiffSize(numstat, cfg.limits.max_task_diff_lines);
+    const head = arg('--head', 'HEAD');
+    const numstat = git(['diff', '--numstat', `${base}...${head}`]).split('\n').filter(Boolean).map((l) => { const [a, d, f] = l.split('\t'); return { file: f, added: Number(a) || 0, deleted: Number(d) || 0 }; });
+    out = checkDiffSize(numstat, cfg.limits.max_task_diff_lines, cfg.test_globs);
   } else if (cmd === 'testfirst') {
     const base = arg('--base', 'origin/main');
     const shas = git(['rev-list', '--reverse', `${base}..HEAD`]).split('\n').filter(Boolean);
     const commits = shas.map((sha) => ({ sha, files: git(['diff-tree', '--no-commit-id', '--name-only', '-r', sha]).split('\n').filter(Boolean) }));
     out = checkTestFirst(commits, cfg.test_globs);
-  } else { console.error('usage: gates.js run|size|text|diff|testfirst'); process.exit(2); }
+    // --optional: CI cannot see the task type, so a branch without test-first commits is skipped, not failed.
+    if (!out.ok && rest.includes('--optional')) out = { ok: true, skipped: `not a test-first branch: ${out.reason}` };
+    else if (out.ok && rest.includes('--prove')) {
+      const tag = arg('--target', null);
+      const targets = tag ? cfg.targets.filter((t) => t.tag === tag) : cfg.targets;
+      if (!targets.length) { console.error('unknown target'); process.exit(3); }
+      out = proveTestFails({ testCommit: out.test_commit, testGlobs: cfg.test_globs, targets, cfg });
+    }
+  } else { console.error('usage: gates.js run|size|check|docs|diff|testfirst'); process.exit(2); }
   console.log(JSON.stringify(out, null, 2));
   process.exit(out.ok ? 0 : 1);
 }

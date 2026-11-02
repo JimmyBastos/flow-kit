@@ -5,13 +5,13 @@ import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from '../scripts/lib/miniyaml.js';
-import { normalize, validate } from '../scripts/lib/config.js';
+import { normalize, validate, warnings } from '../scripts/lib/config.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const skills = readdirSync(join(root, 'skills'));
-const EXPECTED = ['flow-init', 'flow-research', 'flow-spec', 'flow-plan', 'flow-tasks', 'flow-analyze', 'flow-implement', 'flow-resume', 'flow-run', 'flow-review', 'flow-audit', 'flow-drift', 'flow-sync'];
+const EXPECTED = ['flow-init', 'flow-intake', 'flow-research', 'flow-spec', 'flow-plan', 'flow-tasks', 'flow-implement', 'flow-resume', 'flow-run', 'flow-review', 'flow-audit', 'flow-drift', 'flow-sync'];
 
-test('all 13 skills exist, each with matching name and a real description', () => {
+test('all 13 skills exist (flow-intake replaced flow-analyze), each with matching name and a real description', () => {
   assert.deepEqual([...skills].sort(), [...EXPECTED].sort());
   for (const s of skills) {
     const text = readFileSync(join(root, 'skills', s, 'SKILL.md'), 'utf8');
@@ -44,15 +44,20 @@ test('flow-state subcommands used by skills are real', () => {
     assert.ok(src.includes(`cmd === '${m[1]}'`), `${s}: flow-state.js ${m[1]}`);
   }
   const gates = readFileSync(join(root, 'scripts/gates.js'), 'utf8');
-  for (const s of skills) for (const m of readFileSync(join(root, 'skills', s, 'SKILL.md'), 'utf8').matchAll(/gates\.js (run|size|diff|testfirst)/g)) assert.ok(gates.includes(`cmd === '${m[1]}'`));
+  for (const s of skills) for (const m of readFileSync(join(root, 'skills', s, 'SKILL.md'), 'utf8').matchAll(/gates\.js (run|size|check|diff|testfirst)/g)) assert.ok(gates.includes(`cmd === '${m[1]}'`));
 });
 
 test('config template parses; unfilled it fails validation exactly where init must ask', () => {
   const cfg = normalize(parse(readFileSync(join(root, 'templates/flow.config.yaml'), 'utf8')));
   const errs = validate(cfg).join('\n');
-  assert.match(errs, /stages\.implement needs harness and model/);
-  assert.match(errs, /stages\.review needs harness and model/);
-  assert.doesNotMatch(errs, /topology|tracker|limits|compaction/);
+  assert.match(errs, /placeholder gate commands/);
+  assert.equal(cfg.capabilities.planning.candidates[0].harness, 'auto');
+  assert.equal(cfg.capabilities.implementation.retry_candidates[0].model, 'default');
+  assert.equal(cfg.capabilities.research.candidates[0].model, 'default');
+  assert.equal(cfg.capabilities.research.subagent_candidates[0].harness, 'auto');
+  assert.equal(cfg.capabilities.repository_exploration, undefined);
+  assert.doesNotMatch(errs, /topology|tracker|limits/);
+  assert.doesNotMatch(warnings(cfg).join('\n'), /no longer used/, 'the template uses no removed keys');
 });
 
 test('verdict schema is valid JSON and agrees with the validator on required fields', () => {

@@ -74,6 +74,14 @@ function checkGit(args) {
   return null;
 }
 
+// Merging is the CI merge job's decision. A local session must never merge, even a pull request it thinks is safe.
+function checkGh(args) {
+  const words = args.filter((t) => !t.startsWith('-'));
+  if (words.some((t, i) => t === 'pr' && words[i + 1] === 'merge')) return 'gh pr merge is blocked; the CI merge job decides merges';
+  if (words[0] === 'api' && args.some((t) => /\/merges?(\/|$|\?)/.test(t))) return 'merging through gh api is blocked; the CI merge job decides merges';
+  return null;
+}
+
 function checkRm(args) {
   const recursive = args.some((t) => t === '--recursive' || /^-[a-zA-Z]*[rR][a-zA-Z]*$/.test(t));
   if (!recursive) return null;
@@ -98,6 +106,7 @@ function checkSegment(segment, depth = 0) {
   }
   if (cmd === 'xargs' && depth < 3) return checkSegment(args.join(' '), depth + 1);
   if (cmd === 'git') return checkGit(args);
+  if (cmd === 'gh') return checkGh(args);
   if (cmd === 'rm') return checkRm(args);
   if (READERS.has(cmd) && args.some(isSecretPath)) return 'reading secret files (.env*, *creds*, *.pem) is blocked';
   if (/^[<>]/.test(segment.trim()) === false && args.some((a) => a.startsWith('<') && isSecretPath(a.slice(1)))) return 'reading secret files is blocked';

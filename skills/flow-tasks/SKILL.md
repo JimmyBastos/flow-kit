@@ -1,11 +1,11 @@
 ---
 name: flow-tasks
-description: Split approved plans into ordered tasks, each sized for one AI session and tagged by target. Use after flow-plan is approved. No user gate; flow-analyze checks the result.
+description: Split approved plans into ordered tasks, each sized for one AI session and tagged by target, then run the mechanical feature check. Use after flow-plan is approved, or from flow-intake. No user gate.
 ---
 
 # flow-tasks
 
-Input: approved `spec.md` and `plan-*.md`. Output: `.flow/active/<slug>/tasks.md` (template: `templates/tasks.md`).
+Input: approved `spec.md` and `plan-*.md`. Output: `<flow_dir>/active/<slug>/tasks.md` (template: `templates/tasks.md`).
 
 ## Rules for tasks
 - Format `### N. [tag] Imperative title`, then Goal, Context, Acceptance criteria, Type (`feature` or `fix`), Estimate.
@@ -16,7 +16,10 @@ Input: approved `spec.md` and `plan-*.md`. Output: `.flow/active/<slug>/tasks.md
 - `Type: fix` tasks are test-first: the acceptance criteria start with the failing test that reproduces the bug.
 - Do not put anything in a task that is not in the plans. If you discover a gap, stop and say which plan needs the change; do not work around it in the tasks.
 
-Commit: `docs(flow): tasks <slug>`. Next: `/flow-analyze <slug>`. There is no user gate here, but nothing runs until analyze passes.
+## Check
+Run `node scripts/flow/gates.js check --feature <slug>`. It checks size caps, that every `SC-n` is cited by a task, that each cited `SC-n` exists, the task fields and tags, and ticket text without paths, line numbers or estimates. Fix every problem it reports and run it again. A problem you cannot fix without changing the spec or a plan goes back to the user; do not work around it.
+
+Commit: `docs(flow): tasks <slug>`. Next: `/flow-sync <slug>` if a tracker is configured, then `/flow-run <slug>`, or `/flow-run` for the whole queue. There is no user gate here, but nothing runs until the check passes.
 
 ## Writing
 Follow the Writing section of `AGENTS.md`: plain words, named things, short complete sentences, the decision first.
