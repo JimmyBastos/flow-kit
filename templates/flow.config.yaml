@@ -30,24 +30,13 @@ capabilities:               # ordered candidates; tasks request capabilities, no
     candidates:
       - { harness: auto, model: default }
       - { harness: auto, model: default }
-    # high_risk_candidates: # used when the diff touches merge.high_risk_paths (--high-risk)
-    #   - { harness: claude-code, model: opus }
-  utility:                  # short text: commit messages, PR bodies, tracker tickets, summaries
-    candidates:
-      - { harness: auto, model: default }
 model_policy:                # optional provider rules; adapters exclude candidates that fail them
   providers: {}
 limits:
   max_attempts_per_task: 3
-  max_task_diff_lines: 300
+  max_task_diff_lines: 300   # changed code lines per task; test files are reported, not counted
   max_spec_lines: 60
   max_plan_lines: 60
-compaction:
-  default_context_window: 200000 # used only when the selected candidate has no context metadata
-  trigger_percent: 80
-approvals:                  # finding category -> what happens. Unknown categories BLOCK (fail safe)
-  analyze: { block: [contract, coverage, not_included], ask: [scope], log: [format] }
-  drift:   { block: [contradicts_spec], ask: [new_behavior], log: [rename, refactor] }
 merge:
   auto: true                # auto-merge a PR that passed every gate, unless it touches a path below
   required_checks: ["flow-gates / gates"]

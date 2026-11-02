@@ -5,7 +5,7 @@ import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from '../scripts/lib/miniyaml.js';
-import { normalize, validate } from '../scripts/lib/config.js';
+import { normalize, validate, warnings } from '../scripts/lib/config.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const skills = readdirSync(join(root, 'skills'));
@@ -53,9 +53,9 @@ test('config template parses; unfilled it fails validation exactly where init mu
   assert.match(errs, /placeholder gate commands/);
   assert.equal(cfg.capabilities.planning.candidates[0].harness, 'auto');
   assert.equal(cfg.capabilities.implementation.retry_candidates[0].model, 'default');
-  assert.equal(cfg.capabilities.utility.candidates[0].harness, 'auto');
   assert.equal(cfg.capabilities.repository_exploration.candidates[0].model, 'default');
-  assert.doesNotMatch(errs, /topology|tracker|limits|compaction/);
+  assert.doesNotMatch(errs, /topology|tracker|limits/);
+  assert.doesNotMatch(warnings(cfg).join('\n'), /no longer used/, 'the template uses no removed keys');
 });
 
 test('verdict schema is valid JSON and agrees with the validator on required fields', () => {

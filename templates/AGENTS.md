@@ -27,7 +27,6 @@ Everything you write is read by someone who has no context and little time, and 
 - Warnings and irreversible actions get full sentences, and say what happens if the reader goes ahead.
 - Explain a term the first time you use it. If a common word works, use it.
 - Read it aloud. If you would not say it to a colleague, rewrite it.
-- `node scripts/flow/gates.js text --feature <slug>` checks sentence length and a list of vague words.
 
 ### Terms
 | Use | Meaning | Not |

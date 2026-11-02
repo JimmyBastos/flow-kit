@@ -6,10 +6,10 @@ import { normalize, validate, warnings, ALWAYS_HIGH_RISK, flowDir, targetDir } f
 import { parse } from '../scripts/lib/miniyaml.js';
 import { applyPolicy, classify, validateVerdict } from '../scripts/verdict.js';
 import { decide } from '../scripts/merge.js';
-import { checkText, checkSizeCaps, checkDiffSize, checkTestFirst, runGates } from '../scripts/gates.js';
+import { checkSizeCaps, checkDiffSize, checkTestFirst, runGates } from '../scripts/gates.js';
 import { parseState, serializeState, validateState, parseTasks, deriveStatus } from '../scripts/flow-state.js';
 import { checkPush } from '../scripts/pre-push.js';
-import { selectCandidate, compactionForCandidate, detectInstalledHarnesses, resolveDefaultModel, candidatesFor } from '../scripts/capabilities.js';
+import { selectCandidate, detectInstalledHarnesses, resolveDefaultModel, candidatesFor } from '../scripts/capabilities.js';
 import { checkRequiredChecks, waitForRequiredChecks } from '../scripts/check-ci.js';
 
 const goodCfg = () => normalize(parse(`
@@ -24,10 +24,8 @@ capabilities:
     candidates:
       - harness: claude-code
         model: opus
-        context_window: 200000
       - harness: opencode
         model: opencode-go/glm-5.3
-        context_window: 1000000
   implementation:
     candidates:
       - harness: claude-code
@@ -103,10 +101,11 @@ test('verdict: inconsistent or malformed verdicts are invalid (never silently pa
 });
 
 test('classify: unknown categories fail safe to block', () => {
-  const b = { block: ['contradicts_spec'], ask: ['new_behavior'], log: ['rename'] };
-  assert.equal(classify('rename', b), 'log');
-  assert.equal(classify('new_behavior', b), 'ask');
-  assert.equal(classify('totally_new_category', b), 'block');
+  assert.equal(classify('rename', 'drift'), 'log');
+  assert.equal(classify('new_behavior', 'drift'), 'ask');
+  assert.equal(classify('coverage', 'analyze'), 'block');
+  assert.equal(classify('totally_new_category', 'drift'), 'block');
+  assert.equal(classify('rename', 'unknown-kind'), 'block');
 });
 
 test('merge: auto only when checks pass and no high-risk path is touched', () => {
@@ -140,9 +139,6 @@ test('capabilities: ordered candidates skip unavailable harnesses and prefer an 
   assert.deepEqual(selectCandidate(profile, { usedHarness: 'opencode' }), profile.candidates[2]);
   assert.deepEqual(selectCandidate(profile, { availableHarnesses: ['opencode'], unavailableModels: ['opencode-go/glm-5.3'] }), profile.candidates[1]);
   assert.equal(selectCandidate(profile, { availableHarnesses: ['codex'] }), null);
-  assert.deepEqual(compactionForCandidate({ context_window: 1000000 }, { trigger_percent: 80 }), {
-    context_window: 1000000, trigger_percent: 80, compact_at_tokens: 800000,
-  });
 });
 
 test('capabilities: provider privacy policy excludes models with retention or training', () => {
@@ -161,34 +157,44 @@ test('capabilities: auto/default candidates use installed harness adapters', () 
   const profile = { candidates: [{ harness: 'auto', model: 'default' }, { harness: 'auto', model: 'default' }] };
   assert.deepEqual(selectCandidate(profile, { availableHarnesses: harnesses }), { harness: 'opencode', model: 'default' });
   assert.deepEqual(resolveDefaultModel({ harness: 'claude-code', model: 'default' }, 'repository_exploration', {
-    'claude-code': { defaults: { repository_exploration: { model: 'haiku', context_window: 1000000 } } },
-  }), { harness: 'claude-code', model: 'haiku', context_window: 1000000 });
+    'claude-code': { defaults: { repository_exploration: { model: 'haiku' } } },
+  }), { harness: 'claude-code', model: 'haiku' });
 });
 
-test('capabilities: retry and high-risk variants are declared, ordered first, and fall back to base candidates', () => {
+test('capabilities: retry variants are declared, ordered first, and fall back to base candidates', () => {
   const profile = {
     candidates: [{ harness: 'claude-code', model: 'sonnet' }],
     retry_candidates: [{ harness: 'codex', model: 'gpt' }],
-    high_risk_candidates: [{ harness: 'opencode', model: 'glm' }],
   };
   assert.deepEqual(selectCandidate(profile, { availableHarnesses: ['claude-code', 'codex', 'opencode'] }), profile.candidates[0]);
   assert.equal(selectCandidate(profile, { availableHarnesses: ['claude-code', 'codex'], retry: true }).model, 'gpt');
-  assert.equal(selectCandidate(profile, { availableHarnesses: ['claude-code', 'codex', 'opencode'], retry: true, highRisk: true }).variant, 'high_risk');
+  assert.equal(selectCandidate(profile, { availableHarnesses: ['claude-code', 'codex'], retry: true }).variant, 'retry');
   assert.equal(selectCandidate(profile, { availableHarnesses: ['claude-code'], retry: true }).model, 'sonnet');
   assert.deepEqual(candidatesFor({ candidates: [{ harness: 'a', model: 'b' }] }, { retry: true }), [{ harness: 'a', model: 'b' }]);
   const registry = { 'claude-code': { defaults: { implementation: { model: 'sonnet' }, 'implementation.retry': { model: 'opus' } } } };
   assert.equal(resolveDefaultModel({ harness: 'claude-code', model: 'default', variant: 'retry' }, 'implementation', registry).model, 'opus');
-  assert.equal(resolveDefaultModel({ harness: 'claude-code', model: 'default', variant: 'high_risk' }, 'implementation', registry).model, 'sonnet');
+  assert.equal(resolveDefaultModel({ harness: 'claude-code', model: 'default', variant: 'other' }, 'implementation', registry).model, 'sonnet');
 });
 
 test('config: variant candidate lists are validated like base candidates', () => {
   const cfg = goodCfg();
   cfg.capabilities.implementation.retry_candidates = [{ harness: 'codex' }];
-  cfg.capabilities.review.high_risk_candidates = [];
+  cfg.capabilities.review.retry_candidates = [];
   const errs = validate(cfg).join('\n');
   assert.match(errs, /implementation\.retry_candidates\[0\]\.model is required/);
-  assert.match(errs, /review\.high_risk_candidates must be a non-empty list/);
-  assert.match(warnings(goodCfg()).join(), /utility is not configured/);
+  assert.match(errs, /review\.retry_candidates must be a non-empty list/);
+});
+
+test('config: keys from older configs still parse and are reported as unused', () => {
+  const cfg = goodCfg();
+  assert.deepEqual(warnings(cfg), []);
+  cfg.compaction = { trigger_percent: 80 };
+  cfg.approvals = {};
+  cfg.capabilities.review.high_risk_candidates = [{ harness: 'codex', model: 'gpt' }];
+  cfg.capabilities.planning.candidates[0].context_window = 1000000;
+  assert.deepEqual(validate(cfg), []);
+  const w = warnings(cfg).join('\n');
+  for (const key of ['compaction', 'approvals', 'review.high_risk_candidates', 'planning: context_window']) assert.match(w, new RegExp(key.replace('.', '\\.')));
 });
 
 test('CI gate: every configured check must exist and pass', () => {
@@ -298,10 +304,10 @@ import { mkdtempSync, readFileSync as rf } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join as pj } from 'node:path';
 import { fileURLToPath as fu } from 'node:url';
-test('flow-state CLI: FLOW_ROOT lets a target worktree write state into the hub', () => {
+test('flow-state CLI: FLOW_DIR lets a target worktree write state into the hub', () => {
   const hub = mkdtempSync(pj(tmpdir(), 'hub-')); const work = mkdtempSync(pj(tmpdir(), 'work-'));
   const cli = fu(new URL('../scripts/flow-state.js', import.meta.url));
-  const run = (...a) => spawnSync('node', [cli, ...a], { cwd: work, env: { ...process.env, FLOW_ROOT: hub }, encoding: 'utf8' });
+  const run = (...a) => spawnSync('node', [cli, ...a], { cwd: work, env: { ...process.env, FLOW_DIR: pj(hub, '.flow') }, encoding: 'utf8' });
   assert.equal(run('write', 'feat', '2', 'status=in_progress', 'next_step=run gates', 'steps_done=test,impl').status, 0);
   assert.match(rf(pj(hub, '.flow/active/feat/tasks/2/state.md'), 'utf8'), /next_step: "run gates"/);
   assert.equal(run('ask', 'feat', '2', 'Which table?', '--options', 'a|b').status, 0);
@@ -316,10 +322,3 @@ test('gates: a gate never inherits NODE_TEST_CONTEXT (nested node --test would s
   assert.equal(r.ok, true);
 });
 
-test('checkText flags long sentences and vague words, skips code and tables', () => {
-  const long = Array(30).fill('word').join(' ') + '.';
-  const text = ['# Title', long, 'The review travels with the PR.', '| the result travels | x |', '```', long, '```', 'Short and clear.'].join('\n');
-  const p = checkText([{ name: 'spec.md', text }]);
-  assert.deepEqual(p.map((x) => x.kind).sort(), ['long_sentence', 'vague_word']);
-  assert.equal(p.find((x) => x.kind === 'vague_word').text.toLowerCase(), 'travels');
-});

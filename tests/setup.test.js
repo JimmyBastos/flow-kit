@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mergeClaudeSettings, mergeCodexToml, mergeOpencodeJson } from '../scripts/lib/setup-merge.js';
-import { checkCodexToml, checkOpencode, findTrackedSecrets, guardBlocks } from '../scripts/doctor.js';
+import { mergeClaudeSettings } from '../scripts/lib/setup-merge.js';
+import { findTrackedSecrets, guardBlocks } from '../scripts/doctor.js';
 
 const kit = fileURLToPath(new URL('..', import.meta.url));
 
@@ -43,29 +43,6 @@ tracker: none
   assert.match(doctor.stdout, /PASS {2}hub document CI/);
 });
 
-test('codex toml: sets token limit (not percent) and replaces existing values', () => {
-  const t = mergeCodexToml('model = "gpt"\nmodel_auto_compact_token_limit = 1\n', 200000, 80);
-  assert.match(t, /model_context_window = 200000/);
-  assert.match(t, /model_auto_compact_token_limit = 160000/);
-  assert.equal((t.match(/model_auto_compact_token_limit/g) ?? []).length, 1);
-  assert.deepEqual(checkCodexToml(t, 200000, 80), { status: 'ok' });
-  assert.equal(checkCodexToml('', 200000, 80).status, 'fail');
-});
-
-test('opencode: key follows major version; unverified when version unknown', () => {
-  assert.equal(mergeOpencodeJson({}, 200000, 80, 1).key, 'reserved');
-  assert.equal(mergeOpencodeJson({}, 200000, 80, 2).key, 'buffer');
-  const unknown = mergeOpencodeJson({}, 200000, 80, null);
-  assert.equal(unknown.verified, false);
-  assert.equal(unknown.json.compaction.reserved, 40000);
-  const v2 = mergeOpencodeJson({ compaction: { reserved: 40000 } }, 200000, 80, 2).json;
-  assert.equal(v2.compaction.buffer, 40000);
-  assert.equal(v2.compaction.reserved, undefined);
-  assert.equal(checkOpencode(unknown.json, null, 200000, 80).status, 'warn');
-  assert.equal(checkOpencode(unknown.json, 2, 200000, 80).status, 'fail');
-  assert.equal(checkOpencode(v2, 2, 200000, 80).status, 'ok');
-});
-
 test('doctor: finds tracked secrets but not examples', () => {
   assert.deepEqual(findTrackedSecrets(['.env', 'a/.env.local', 'n8n_creds.json', 'k.pem', '.env.example', 'src/a.js']), ['.env', 'a/.env.local', 'n8n_creds.json', 'k.pem']);
 });
@@ -93,17 +70,15 @@ capabilities:
     candidates:
       - harness: claude-code
         model: opus
-        context_window: 200000
   review:
     prefer_different_harness: true
     candidates:
       - harness: codex
         model: gpt
-        context_window: 200000
 `);
   const setup = sh('node', [join(kit, 'scripts/flow-setup.js')]);
   assert.equal(setup.status, 0, setup.stderr);
-  for (const f of ['scripts/flow/guard-destructive.js', 'scripts/flow/check-ci.js', 'scripts/flow/capabilities.js', 'scripts/flow/lib/miniyaml.js', 'scripts/flow/adapters/harness.md', '.githooks/pre-push', '.github/workflows/flow-gates.yml', '.claude/settings.json', '.codex/config.toml', 'opencode.json', 'CLAUDE.md']) {
+  for (const f of ['scripts/flow/guard-destructive.js', 'scripts/flow/check-ci.js', 'scripts/flow/capabilities.js', 'scripts/flow/lib/miniyaml.js', 'scripts/flow/adapters/harness.md', '.githooks/pre-push', '.github/workflows/flow-gates.yml', '.github/workflows/flow-merge.yml', '.claude/settings.json', 'CLAUDE.md']) {
     assert.ok(existsSync(join(dir, f)), `missing ${f}`);
   }
   assert.ok((statSync(join(dir, '.githooks/pre-push')).mode & 0o111) !== 0);
@@ -114,7 +89,8 @@ capabilities:
   assert.match(doc.stdout, /PASS {2}guard denies force push/);
   assert.match(doc.stdout, /PASS {2}git pre-push hook active/);
   assert.match(doc.stdout, /PASS {2}Claude Code: guard hook/);
-  assert.match(doc.stdout, /PASS {2}Codex compaction limit/);
+  assert.ok(!existsSync(join(dir, '.codex/config.toml')) && !existsSync(join(dir, 'opencode.json')), 'setup no longer writes compaction settings');
+  assert.doesNotMatch(doc.stdout, /WARN|FAIL/, doc.stdout);
   assert.match(doc.stdout, /PASS {2}base-branch CI merge gate/);
   // the merge workflow judges with base-branch code and only reads the pull request as data
   const merge = readFileSync(join(dir, '.github/workflows/flow-merge.yml'), 'utf8');
@@ -125,7 +101,6 @@ capabilities:
   assert.doesNotMatch(merge, /--auto/);
   const gates = readFileSync(join(dir, '.github/workflows/flow-gates.yml'), 'utf8');
   assert.doesNotMatch(gates, /contents: write|merge\.js run/, 'the gates workflow runs pull request code, so it gets no write token');
-  assert.match(doc.stdout, /WARN {2}CLAUDE_AUTOCOMPACT_PCT_OVERRIDE/);
   // the installed pre-push hook really blocks a force push to a protected branch
   const remote = mkdtempSync(join(tmpdir(), 'flow-remote-'));
   spawnSync('git', ['init', '-q', '--bare', '-b', 'main'], { cwd: remote });

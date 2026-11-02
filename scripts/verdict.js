@@ -35,9 +35,16 @@ export function applyPolicy(v) {
   return { action: v.verdict === 'fail' ? 'retry' : 'pass', errors: [], blocking: by('block'), questions: by('ask'), logged: by('log') };
 }
 
-// Classify a finding category (analyze/drift) with the configured severity buckets.
+// Fixed severity of each finding category. The skills state the same lists.
+export const FINDING_SEVERITY = {
+  analyze: { block: ['contract', 'coverage', 'not_included'], ask: ['scope'], log: ['format'] },
+  drift: { block: ['contradicts_spec'], ask: ['new_behavior'], log: ['rename', 'refactor'] },
+};
+
+// Classify a finding category for a kind of check (analyze | drift).
 // Unknown categories fail SAFE: they block, because an unclassified finding is not known to be harmless.
-export function classify(category, buckets) {
+export function classify(category, kind) {
+  const buckets = FINDING_SEVERITY[kind];
   for (const s of SEVERITIES) if (buckets?.[s]?.includes(category)) return s;
   return 'block';
 }

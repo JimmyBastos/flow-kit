@@ -7,7 +7,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadConfig, requiredChecks, allCandidates } from './lib/config.js';
+import { loadConfig, requiredChecks } from './lib/config.js';
 import { SECRET_DENY } from './lib/setup-merge.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -15,22 +15,6 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const SECRET_FILE = /(^|\/)(\.env(\..+)?|.*creds.*|.*\.pem|id_(rsa|ed25519|ecdsa))$/i;
 export const SECRET_OK = /\.(example|sample|template|dist)$/i;
 export const findTrackedSecrets = (files) => files.filter((f) => SECRET_FILE.test(f) && !SECRET_OK.test(f));
-
-export function checkCodexToml(text, win, pct) {
-  const want = Math.floor((win * pct) / 100);
-  const got = Number((text.match(/^model_auto_compact_token_limit\s*=\s*(\d+)/m) ?? [])[1]);
-  return got === want ? { status: 'ok' } : { status: 'fail', detail: `model_auto_compact_token_limit is ${got || 'unset'}, expected ${want}` };
-}
-
-export function checkOpencode(json, major, win, pct) {
-  const c = json?.compaction;
-  if (!c) return { status: 'fail', detail: 'opencode.json has no compaction block' };
-  if (major === null) return { status: 'warn', detail: 'opencode not installed or version unreadable: cannot verify the compaction key name' };
-  const key = major >= 2 ? 'buffer' : 'reserved';
-  if (c[key] === undefined) return { status: 'fail', detail: `installed opencode v${major} reads compaction.${key}, but opencode.json sets ${Object.keys(c).filter((k) => k !== 'auto').join(',') || 'nothing'}` };
-  const want = win - Math.floor((win * pct) / 100);
-  return c[key] === want ? { status: 'ok' } : { status: 'fail', detail: `compaction.${key} is ${c[key]}, expected ${want}` };
-}
 
 // The merge workflow must run base-branch code (pull_request_target), check the verdict and CI results, then merge.
 export function checkMergeWorkflow(text, configuredChecks) {
@@ -56,7 +40,7 @@ function run(ci) {
   const hasInlineConfig = Boolean(process.env.FLOW_CONFIG_B64 || process.env.FLOW_CONFIG_JSON);
   const { cfg, errors, warnings = [] } = hasInlineConfig || existsSync(cfgPath) ? loadConfig() : { cfg: null, errors: ['flow.config.yaml not found; run /flow-init'] };
   add('flow.config.yaml valid', errors.length ? { status: 'fail', detail: errors.join('; ') } : { status: 'ok' });
-  if (warnings.length) add('review harness', { status: 'warn', detail: warnings.join('; ') });
+  if (warnings.length) add('flow.config.yaml warnings', { status: 'warn', detail: warnings.join('; ') });
   const guard = existsSync('scripts/flow/guard-destructive.js') ? 'scripts/flow/guard-destructive.js' : join(here, 'guard-destructive.js');
   add('guard denies force push (exit 2) and allows normal commands', guardBlocks(guard));
   const tracked = spawnSync('git', ['ls-files'], { encoding: 'utf8' }).stdout.split('\n').filter(Boolean);
@@ -73,16 +57,6 @@ function run(ci) {
   const hasHook = JSON.stringify(cs.hooks ?? {}).includes('guard-destructive.js');
   const hasDeny = SECRET_DENY.every((d) => cs.permissions?.deny?.includes(d));
   add('Claude Code: guard hook + secret deny rules', hasHook && hasDeny ? { status: 'ok' } : { status: 'fail', detail: 'run flow-setup' });
-  const envPct = process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE;
-  add('CLAUDE_AUTOCOMPACT_PCT_OVERRIDE exported', Number(envPct) === cfg.compaction.trigger_percent ? { status: 'ok' } : { status: 'warn', detail: `not exported in this shell (want ${cfg.compaction.trigger_percent}); it only lowers the default of ~77-83%` });
-
-  const contexts = allCandidates(cfg).map((candidate) => candidate.context_window ?? cfg.compaction.default_context_window);
-  const win = contexts.length ? Math.min(...contexts) : cfg.compaction.default_context_window;
-  const { trigger_percent: pct } = cfg.compaction;
-  add('Codex compaction limit', existsSync('.codex/config.toml') ? checkCodexToml(readFileSync('.codex/config.toml', 'utf8'), win, pct) : { status: 'fail', detail: 'missing .codex/config.toml' });
-  const ov = spawnSync('opencode', ['--version'], { encoding: 'utf8' });
-  const major = ov.status === 0 ? parseInt((ov.stdout.match(/(\d+)\./) ?? [])[1], 10) : null;
-  add('OpenCode compaction key matches installed version', existsSync('opencode.json') ? checkOpencode(JSON.parse(readFileSync('opencode.json', 'utf8')), Number.isNaN(major) ? null : major, win, pct) : { status: 'fail', detail: 'missing opencode.json' });
 
   if (cfg.workspace === 'orca') {
     const orca = spawnSync('sh', ['-c', 'command -v orca'], { encoding: 'utf8' });

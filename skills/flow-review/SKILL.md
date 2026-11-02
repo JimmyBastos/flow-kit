@@ -7,7 +7,7 @@ description: Review a task's diff with the configured review capability, preferr
 
 Read-only on code. You write exactly one file: `.flow/active/<slug>/tasks/<id>/verdict.json` (schema: `schemas/verdict.schema.json`), inside the code worktree. This review artifact travels with the pull request so target CI can verify it. Shared state and decisions stay under `FLOW_DIR`. Review in a new session and prefer a different harness from implementation. If `state.md` shows this is the implementing session, stop and say so.
 
-Use the `review` capability selected for the task. The adapter applies the candidate's context and compaction settings.
+Use the `review` capability selected for the task.
 
 ## Step 0: run the gates first (they are fast and give the same result every time)
 Run and capture, in order, stopping at the first failure:

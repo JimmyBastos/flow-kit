@@ -58,7 +58,7 @@ export function deriveStatus(tasks, states) {
   };
 }
 
-// FLOW_DIR points at the shared data directory. FLOW_ROOT remains supported for older setups.
+// FLOW_DIR points at the shared data directory.
 const ROOT = flowDir(null);
 const dir = (slug, id) => join(ROOT, 'active', slug, 'tasks', id);
 

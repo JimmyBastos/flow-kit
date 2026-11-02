@@ -7,7 +7,7 @@ description: Implement exactly one task from tasks.md on its own branch, committ
 
 Input: slug and task id. You work in a worktree on branch `flow/<slug>/<id>`; if the branch does not exist create it from the default branch. Set `FLOW_CONFIG` and `FLOW_DIR` before calling scripts. In `multi`, `FLOW_DIR` points to the hub's configured flow folder.
 
-Use the `implementation` capability (`--retry` when a previous verdict exists). Use `utility` for commit messages when it is configured. A task may request another configured capability. Do not choose a model by skill name.
+Use the `implementation` capability (`--retry` when a previous verdict exists). A task may request another configured capability. Do not choose a model by skill name.
 
 ## Before coding
 1. If this is not a brand-new task, run `/flow-resume` first and follow it.
@@ -36,7 +36,7 @@ A red test is never "not mine". Do not say it was already broken, do not skip it
 - Only the task. A failing gate is part of the task (see above). If you find something else outside it (a bug, missing contract, rule conflict, ambiguity the plan does not cover), do not fix it: `node scripts/flow/flow-state.js ask <slug> <id> "<question>" --options "a|b"`, commit, and stop. The user answers in `questions.md`.
 - Never touch the protected files (`flow.config.yaml`, `.github/`, `scripts/flow/`, `docs/rules/`, `.githooks/`). Never read secrets. Never force-push.
 - Never mark the task done yourself. Done means the review passed and the pull request merged.
-- Keep the diff within `limits.max_task_diff_lines` (`gates.js diff`). If it will not fit, stop and ask for a split; do not shorten the code to make it fit.
+- Keep the code diff within `limits.max_task_diff_lines` (`gates.js diff`; test files do not count). If it will not fit, stop and ask for a split; do not shorten the code to make it fit.
 
 ## Finish
 All acceptance criteria met and gates green: `flow-state.js write <slug> <id> next_step="review" next_harness=<review harness>`, commit, and say "ready for /flow-review". If a previous verdict exists (a retry), address each `block` violation specifically, and mention in the commit which violation ids you fixed.

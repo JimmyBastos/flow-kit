@@ -125,18 +125,13 @@ capabilities:
   review:
     prefer_different_harness: true
     candidates: [{ harness: auto, model: default }, { harness: auto, model: default }]
-  utility:
-    candidates: [{ harness: auto, model: default }]
 model_policy:
   providers: {}            # optional data-retention and training constraints
 limits:
   max_attempts_per_task: 3
-  max_task_diff_lines: 300
+  max_task_diff_lines: 300   # code lines; test lines are reported, not counted
   max_spec_lines: 60
   max_plan_lines: 60
-approvals:                  # a finding category not listed here counts as block
-  analyze: { block: [contract, coverage, not_included], ask: [scope], log: [format] }
-  drift:   { block: [contradicts_spec], ask: [new_behavior], log: [rename, refactor] }
 merge:
   auto: true                # auto-merge a passing PR, unless it touches:
   required_checks: ["flow-gates / gates"]
@@ -155,9 +150,8 @@ Capabilities are independent of skills. A skill requests a capability; the confi
 | `repository_exploration` | read-only code search | haiku |
 | `implementation` | one task per session | sonnet; opus on retry |
 | `review` | independent diff review | opus |
-| `utility` | commit messages, PR bodies, tickets, summaries | haiku |
 
-`retry_candidates` are selected after a failed review, so a retry does not repeat the same model by accident. `high_risk_candidates` are selected for review when the diff touches `merge.high_risk_paths`. Both are declared in the config; the base candidates stay as the availability fallback. Adapters report availability, model context, and known data policies. Project policy can exclude candidates that retain or train on submitted data.
+`retry_candidates` are selected after a failed review, so a retry does not repeat the same model by accident. They are declared in the config; the base candidates stay as the availability fallback. Adapters report availability, model context, and known data policies. Project policy can exclude candidates that retain or train on submitted data.
 
 The starter config uses `auto/default` candidates. It detects an installed harness and uses that adapter's capability default. Projects can replace the defaults with exact model candidates.
 

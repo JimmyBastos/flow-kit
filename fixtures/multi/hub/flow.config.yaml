@@ -13,20 +13,16 @@ capabilities:
     candidates:
       - harness: claude-code
         model: opus
-        context_window: 200000
   repository_exploration:
     candidates:
       - harness: claude-code
         model: haiku
-        context_window: 200000
   implementation:
     candidates:
       - harness: claude-code
         model: sonnet
-        context_window: 200000
   review:
     prefer_different_harness: true
     candidates:
       - harness: opencode
         model: opencode-go/glm-5.3
-        context_window: 1000000

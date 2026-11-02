@@ -29,21 +29,18 @@ export function resolveDefaultModel(candidate, capability, registry = {}) {
 }
 
 // Declared variants come first; the base candidates stay as the availability fallback.
-// high_risk wins over retry because a risky diff needs the stronger reviewer on every attempt.
-export const VARIANT_LISTS = { high_risk: 'high_risk_candidates', retry: 'retry_candidates' };
+export const VARIANT_LISTS = { retry: 'retry_candidates' };
 
-export function candidatesFor(profile, { retry = false, highRisk = false } = {}) {
+export function candidatesFor(profile, { retry = false } = {}) {
   const base = profile?.candidates ?? [];
-  const variant = highRisk && profile?.high_risk_candidates?.length ? 'high_risk'
-    : retry && profile?.retry_candidates?.length ? 'retry'
-    : null;
+  const variant = retry && profile?.retry_candidates?.length ? 'retry' : null;
   if (!variant) return base;
   return [...profile[VARIANT_LISTS[variant]].map((candidate) => ({ ...candidate, variant })), ...base];
 }
 
 export function selectCandidate(profile, options = {}) {
-  const { availableHarnesses = null, unavailableModels = [], preferDifferentHarness = profile?.prefer_different_harness === true, usedHarness = null, modelPolicy = {}, retry = false, highRisk = false } = options;
-  const candidates = candidatesFor(profile, { retry, highRisk });
+  const { availableHarnesses = null, unavailableModels = [], preferDifferentHarness = profile?.prefer_different_harness === true, usedHarness = null, modelPolicy = {}, retry = false } = options;
+  const candidates = candidatesFor(profile, { retry });
   const unavailable = new Set(unavailableModels);
   const availableIds = availableHarnesses ?? [...new Set(candidates.filter((candidate) => candidate.harness !== 'auto').map((candidate) => candidate.harness))];
   const expanded = candidates.flatMap((candidate) => candidate.harness === 'auto'
@@ -62,16 +59,6 @@ export function selectCandidate(profile, options = {}) {
   return available[0];
 }
 
-export function compactionForCandidate(candidate, compaction = {}) {
-  const contextWindow = candidate.context_window ?? compaction.default_context_window ?? 200000;
-  const triggerPercent = compaction.trigger_percent ?? 80;
-  return {
-    context_window: contextWindow,
-    trigger_percent: triggerPercent,
-    compact_at_tokens: Math.floor(contextWindow * triggerPercent / 100),
-  };
-}
-
 export function candidateAllowed(candidate, modelPolicy = {}) {
   const provider = candidate.provider ?? (String(candidate.model ?? '').includes('/') ? String(candidate.model).split('/')[0] : null);
   const policy = provider ? modelPolicy.providers?.[provider] : null;
@@ -85,7 +72,7 @@ export function candidateAllowed(candidate, modelPolicy = {}) {
 function main(args) {
   const [cmd, capability, ...rest] = args;
   if (cmd !== 'select' || !capability) {
-    console.error('usage: node capabilities.js select <capability> [--available-harness <id>] [--unavailable <harness/model>] [--used-harness <id>] [--retry] [--high-risk]');
+    console.error('usage: node capabilities.js select <capability> [--available-harness <id>] [--unavailable <harness/model>] [--used-harness <id>] [--retry]');
     process.exit(2);
   }
   const { cfg, errors } = loadConfig();
@@ -106,14 +93,13 @@ function main(args) {
     usedHarness: values('--used-harness')[0] ?? null,
     modelPolicy: cfg.model_policy,
     retry: rest.includes('--retry'),
-    highRisk: rest.includes('--high-risk'),
   });
   if (!selected) {
     console.error(`no available candidate for capability: ${capability}`);
     process.exit(4);
   }
   const resolved = resolveDefaultModel(selected, capability, readRegistry());
-  console.log(JSON.stringify({ capability, ...resolved, compaction: compactionForCandidate(resolved, cfg.compaction) }, null, 2));
+  console.log(JSON.stringify({ capability, ...resolved }, null, 2));
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) main(process.argv.slice(2));

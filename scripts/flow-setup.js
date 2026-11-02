@@ -2,13 +2,13 @@
 // Installs flow-kit's enforcement layer into the current project. Idempotent. Run from the project root.
 //   node <kit>/scripts/flow-setup.js [--dry-run]
 // Writes: scripts/flow/*, .githooks/pre-push (+ core.hooksPath), .github/workflows/flow-{gates,merge}.yml,
-//         .claude/settings.json (hooks + secret deny), .codex/config.toml, opencode.json, CLAUDE.md, .claude/skills link.
+//         .claude/settings.json (hooks + secret deny), CLAUDE.md, .claude/skills link.
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync, chmodSync, lstatSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { loadConfig, allCandidates } from './lib/config.js';
-import { mergeClaudeSettings, mergeCodexToml, mergeOpencodeJson, CLAUDE_MD, PRE_PUSH_HOOK, compactionEnvLine } from './lib/setup-merge.js';
+import { loadConfig } from './lib/config.js';
+import { mergeClaudeSettings, CLAUDE_MD, PRE_PUSH_HOOK } from './lib/setup-merge.js';
 
 const kit = join(dirname(fileURLToPath(import.meta.url)), '..');
 const dry = process.argv.includes('--dry-run');
@@ -19,10 +19,6 @@ const writeJson = (p, o) => { mkdirSync(dirname(p), { recursive: true }); writeF
 
 const { cfg, errors } = loadConfig();
 if (errors.length) { console.error(`flow.config.yaml is invalid:\n  ${errors.join('\n  ')}`); process.exit(3); }
-const candidates = allCandidates(cfg);
-const windows = candidates.map((candidate) => candidate.context_window ?? cfg.compaction.default_context_window);
-const win = windows.length ? Math.min(...windows) : cfg.compaction.default_context_window;
-const { trigger_percent: pct } = cfg.compaction;
 
 // 1. helper scripts (Node, no deps) -> scripts/flow/
 act('copy scripts to scripts/flow/', () => {
@@ -55,7 +51,7 @@ act('install .github/workflows/flow-gates.yml and flow-merge.yml', () => {
     const ciConfig = {
       topology: 'single', flow_dir: '.flow', targets: [{ ...target, path: '.', required_checks: target.required_checks ?? cfg.merge.required_checks }],
       tracker: 'none', workspace: cfg.workspace, fallback: cfg.fallback, limits: cfg.limits,
-      compaction: cfg.compaction, approvals: cfg.approvals, merge: cfg.merge, test_globs: cfg.test_globs,
+      merge: cfg.merge, test_globs: cfg.test_globs,
     };
     const fill = (file) => readFileSync(join(kit, 'templates/ci', file), 'utf8')
       .replaceAll('__FLOW_TARGET__', target.tag)
@@ -69,17 +65,8 @@ act('install .github/workflows/flow-gates.yml and flow-merge.yml', () => {
   if (mergeWorkflow) writeFileSync('.github/workflows/flow-merge.yml', mergeWorkflow);
 });
 
-// 4. harness config
+// 4. harness config (each harness compacts long sessions itself; state.md and the hooks make a task resumable)
 act('merge .claude/settings.json (guard, checkpoint, session-start hooks, secret deny rules)', () => writeJson('.claude/settings.json', mergeClaudeSettings(readJson('.claude/settings.json'))));
-act('write .codex/config.toml compaction limit', () => {
-  mkdirSync('.codex', { recursive: true });
-  writeFileSync('.codex/config.toml', mergeCodexToml(existsSync('.codex/config.toml') ? readFileSync('.codex/config.toml', 'utf8') : '', win, pct));
-});
-const ov = spawnSync('opencode', ['--version'], { encoding: 'utf8' });
-const major = ov.status === 0 ? parseInt((ov.stdout.match(/(\d+)\./) ?? [])[1], 10) : null;
-const oc = mergeOpencodeJson(readJson('opencode.json'), win, pct, Number.isNaN(major) ? null : major);
-act(`merge opencode.json compaction.${oc.key}`, () => writeJson('opencode.json', oc.json));
-if (!oc.verified) log.push('WARN opencode not found or version unreadable: wrote compaction.reserved; run `doctor` after installing opencode to verify the key name');
 
 // 5. instructions + skills link
 act('write CLAUDE.md (imports AGENTS.md)', () => { if (!existsSync('CLAUDE.md')) writeFileSync('CLAUDE.md', CLAUDE_MD); });
@@ -92,4 +79,4 @@ act('link .claude/skills -> ../.agents/skills (copy on Windows)', () => {
 });
 
 console.log(log.join('\n'));
-console.log(`\nNext, in the shell that opens Claude Code:\n  ${compactionEnvLine(pct)}\nThen run: node scripts/flow/doctor.js`);
+console.log('\nNext, run: node scripts/flow/doctor.js');

@@ -11,11 +11,6 @@ export const DEFAULTS = {
   fallback: 'unavailable',
   model_policy: { providers: {} },
   limits: { max_attempts_per_task: 3, max_task_diff_lines: 300, max_spec_lines: 60, max_plan_lines: 60 },
-  compaction: { default_context_window: 200000, trigger_percent: 80 },
-  approvals: {
-    analyze: { block: ['contract', 'coverage', 'not_included'], ask: ['scope'], log: ['format'] },
-    drift: { block: ['contradicts_spec'], ask: ['new_behavior'], log: ['rename', 'refactor'] },
-  },
   merge: { auto: true, required_checks: ['flow-gates / gates'], high_risk_paths: ['**/migrations/**', '**/auth/**', '.github/**', 'infra/**'] },
   test_globs: ['**/*.test.*', '**/*.spec.*', '**/test/**', '**/tests/**', '**/__tests__/**', '**/test_*.py', '**/*_test.go'],
 };
@@ -31,15 +26,16 @@ function merge(base, over) {
   return out;
 }
 
-// A capability lists base candidates plus optional variants chosen on retry or for high-risk diffs.
-export const CANDIDATE_LISTS = ['candidates', 'retry_candidates', 'high_risk_candidates'];
+// A capability lists base candidates plus an optional variant chosen after a failed review.
+export const CANDIDATE_LISTS = ['candidates', 'retry_candidates'];
 
-export const allCandidates = (cfg) => Object.values(cfg.capabilities ?? {}).flatMap((profile) => CANDIDATE_LISTS.flatMap((list) => (Array.isArray(profile?.[list]) ? profile[list] : [])));
+// Keys from older configs. They still parse, but nothing reads them.
+const IGNORED_KEYS = ['compaction', 'approvals'];
+const IGNORED_LISTS = ['high_risk_candidates'];
 
 function validateCandidate(cfg, at, candidate, errors) {
   if (!candidate.harness) errors.push(`${at}.harness is required`);
   if (!candidate.model) errors.push(`${at}.model is required`);
-  if (candidate.context_window !== undefined && (!Number.isInteger(candidate.context_window) || candidate.context_window < 1)) errors.push(`${at}.context_window must be a positive integer`);
   const provider = candidate.provider ?? (String(candidate.model ?? '').includes('/') ? String(candidate.model).split('/')[0] : null);
   const policy = provider ? cfg.model_policy?.providers?.[provider] : null;
   if (!policy) return;
@@ -91,8 +87,6 @@ export function validate(cfg) {
   for (const k of ['max_attempts_per_task', 'max_task_diff_lines', 'max_spec_lines', 'max_plan_lines']) {
     if (!Number.isInteger(l?.[k]) || l[k] < 1) errors.push(`limits.${k} must be a positive integer`);
   }
-  const { trigger_percent: p } = cfg.compaction ?? {};
-  if (!(p >= 50 && p <= 95)) errors.push('compaction.trigger_percent must be between 50 and 95');
   if (cfg.merge?.required_checks !== undefined && (!Array.isArray(cfg.merge.required_checks) || cfg.merge.required_checks.some((x) => typeof x !== 'string' || !x.trim()))) errors.push('merge.required_checks must be a list of check names');
   if (cfg.merge?.auto && (!Array.isArray(cfg.merge.required_checks) || cfg.merge.required_checks.length === 0)) errors.push('merge.auto requires at least one merge.required_checks entry');
   return errors;
@@ -104,7 +98,11 @@ export function warnings(cfg) {
   const imp = cfg.capabilities?.implementation?.candidates?.[0]?.harness;
   const rev = cfg.capabilities?.review?.candidates?.[0]?.harness;
   if (imp && rev && imp === rev) out.push('review and implementation use the same first-choice harness; an independent review candidate is preferred');
-  if (cfg.capabilities && !cfg.capabilities.utility) out.push('capabilities.utility is not configured; commit, PR, and summary text run on the calling capability');
+  for (const key of IGNORED_KEYS) if (cfg[key] !== undefined) out.push(`${key} is no longer used; remove it from flow.config.yaml`);
+  for (const [name, profile] of Object.entries(cfg.capabilities ?? {})) {
+    for (const list of IGNORED_LISTS) if (profile?.[list] !== undefined) out.push(`capabilities.${name}.${list} is no longer used; remove it`);
+    if (CANDIDATE_LISTS.some((list) => (profile?.[list] ?? []).some?.((candidate) => candidate?.context_window !== undefined))) out.push(`capabilities.${name}: context_window is no longer used; remove it`);
+  }
   return out;
 }
 
@@ -118,8 +116,6 @@ export function configPath(path = process.env.FLOW_CONFIG ?? 'flow.config.yaml')
 
 export function flowDir(cfg, path = process.env.FLOW_CONFIG ?? 'flow.config.yaml') {
   if (process.env.FLOW_DIR) return resolve(process.env.FLOW_DIR);
-  // Backward compatibility for the old multi-repo variable, which pointed at the hub repo.
-  if (process.env.FLOW_ROOT) return resolve(process.env.FLOW_ROOT, '.flow');
   const configured = cfg?.flow_dir ?? '.flow';
   return isAbsolute(configured) ? configured : resolve(dirname(configPath(path)), configured);
 }

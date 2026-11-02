@@ -6,7 +6,6 @@
 //   node gates.js testfirst --base origin/main [--prove [--target <tag>]] [--optional]
 //                                                  fix tasks: failing test commit must precede the fix;
 //                                                  --prove also runs the gates without the fix and requires a failure
-//   node gates.js text  --feature <slug>           plain-language check: long sentences, figurative or vague words
 // Exit codes: 0 ok, 1 gate failed, 3 config error.
 import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync, existsSync, rmSync } from 'node:fs';
@@ -23,28 +22,6 @@ export function checkSizeCaps(files, limits) {
     const n = countLines(text);
     const cap = name === 'spec.md' ? limits.max_spec_lines : /^plan-.+\.md$/.test(name) ? limits.max_plan_lines : null;
     if (cap && n > cap) problems.push({ file: name, lines: n, cap, fix: 'split the feature; never compress to fit' });
-  }
-  return problems;
-}
-
-export const MAX_SENTENCE_WORDS = 25;
-const VAGUE = [/\btravels?\b/i, /\bpicks? up\b/i, /\bbacks? up\b/i, /\blives? in\b/i, /\beyeball/i, /\bsqueez/i, /\bpaper over\b/i, /\bsweep\b/i, /\bthe (result|state)\b/i];
-
-// Plain-language check for the docs people read. Skips front matter, code blocks, tables and inline code.
-export function checkText(files, maxWords = MAX_SENTENCE_WORDS) {
-  const problems = [];
-  for (const { name, text } of files) {
-    let inFence = false;
-    text.split('\n').forEach((raw, i) => {
-      if (/^```/.test(raw)) { inFence = !inFence; return; }
-      if (inFence || /^\s*\|/.test(raw) || /^#{1,6}\s/.test(raw)) return;
-      const line = raw.replace(/`[^`]*`/g, 'X').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
-      for (const sentence of line.split(/(?<=[.!?])\s+/)) {
-        const words = sentence.split(/\s+/).filter(Boolean).length;
-        if (words > maxWords) problems.push({ file: name, line: i + 1, kind: 'long_sentence', words, text: sentence.slice(0, 80) });
-      }
-      for (const re of VAGUE) { const m = line.match(re); if (m) problems.push({ file: name, line: i + 1, kind: 'vague_word', text: m[0] }); }
-    });
   }
   return problems;
 }
@@ -154,11 +131,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.md')).map((name) => ({ name, text: readFileSync(join(dir, name), 'utf8') })) : [];
     const problems = checkSizeCaps(files, cfg.limits);
     out = { ok: problems.length === 0, problems };
-  } else if (cmd === 'text') {
-    const dir = join(flowDir(cfg), 'active', arg('--feature'));
-    const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.md') && !['analyze.md', 'drift.md'].includes(f)).map((name) => ({ name, text: readFileSync(join(dir, name), 'utf8') })) : [];
-    const problems = checkText(files);
-    out = { ok: problems.length === 0, problems };
   } else if (cmd === 'docs') {
     const files = collectFlowDocuments(flowDir(cfg));
     const size = checkSizeCaps(files, cfg.limits);
@@ -181,7 +153,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       if (!targets.length) { console.error('unknown target'); process.exit(3); }
       out = proveTestFails({ testCommit: out.test_commit, testGlobs: cfg.test_globs, targets, cfg });
     }
-  } else { console.error('usage: gates.js run|size|text|diff|testfirst'); process.exit(2); }
+  } else { console.error('usage: gates.js run|size|docs|diff|testfirst'); process.exit(2); }
   console.log(JSON.stringify(out, null, 2));
   process.exit(out.ok ? 0 : 1);
 }
