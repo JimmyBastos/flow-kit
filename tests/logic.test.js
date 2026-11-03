@@ -262,6 +262,13 @@ test('gates: diff cap does not count test files, and reports them apart', () => 
   assert.deepEqual(r, { total: 250, test_lines: 400, cap: 300, ok: true });
 });
 
+test('gates: diff cap skips files that match diff_exempt_globs', () => {
+  const rows = [{ file: 'src/a.js', added: 10, deleted: 0 }, { file: 'src/db/migration/2026_x/snapshot.json', added: 2600, deleted: 0 }];
+  assert.equal(checkDiffSize(rows, 300).ok, false);
+  assert.deepEqual(checkDiffSize(rows, 300, [], ['**/migration/**/snapshot.json']), { total: 10, test_lines: 0, cap: 300, ok: true });
+  assert.equal(checkDiffSize([{ file: 'src/db/migration/2026_x/migration.sql', added: 400, deleted: 0 }], 300, [], ['**/migration/**/snapshot.json']).ok, false);
+});
+
 test('gates: test-first ordering', () => {
   const globs = goodCfg().test_globs;
   const ok = [{ sha: 'a1111111', files: ['tests/a.test.js'] }, { sha: 'b2222222', files: ['src/a.js'] }];

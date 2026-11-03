@@ -92,10 +92,10 @@ export function collectFlowDocuments(root) {
   return files;
 }
 
-// numstat: [{file, added, deleted}] -> excludes .flow/ and lockfiles (not reviewable code).
+// numstat: [{file, added, deleted}] -> excludes .flow/, lockfiles and files that match diff_exempt_globs (generated, not reviewable code).
 // Test files are reported apart and do not count, so the cap never rewards writing fewer tests.
-export function checkDiffSize(numstat, maxLines, testGlobs = []) {
-  const counted = numstat.filter((r) => !r.file.startsWith('.flow/') && !/(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|uv\.lock|Cargo\.lock|go\.sum)$/.test(r.file));
+export function checkDiffSize(numstat, maxLines, testGlobs = [], exemptGlobs = []) {
+  const counted = numstat.filter((r) => !r.file.startsWith('.flow/') && !/(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|uv\.lock|Cargo\.lock|go\.sum)$/.test(r.file) && !matchesAny(r.file, exemptGlobs));
   const lines = (rows) => rows.reduce((s, r) => s + r.added + r.deleted, 0);
   const isTest = (r) => matchesAny(r.file, testGlobs);
   const total = lines(counted.filter((r) => !isTest(r)));
@@ -197,7 +197,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const base = arg('--base', 'origin/main');
     const head = arg('--head', 'HEAD');
     const numstat = git(['diff', '--numstat', `${base}...${head}`]).split('\n').filter(Boolean).map((l) => { const [a, d, f] = l.split('\t'); return { file: f, added: Number(a) || 0, deleted: Number(d) || 0 }; });
-    out = checkDiffSize(numstat, cfg.limits.max_task_diff_lines, cfg.test_globs);
+    out = checkDiffSize(numstat, cfg.limits.max_task_diff_lines, cfg.test_globs, cfg.diff_exempt_globs);
   } else if (cmd === 'testfirst') {
     const base = arg('--base', 'origin/main');
     const shas = git(['rev-list', '--reverse', `${base}..HEAD`]).split('\n').filter(Boolean);
