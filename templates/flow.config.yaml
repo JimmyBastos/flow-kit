@@ -42,4 +42,5 @@ merge:
   auto: true                # auto-merge a PR that passed every gate, unless it touches a path below
   required_checks: ["flow-gates / gates"]
   high_risk_paths: ["**/migrations/**", "**/auth/**", ".github/**", "infra/**"]
+# diff_exempt_globs: ["**/migration/**/snapshot.json"]   # generated files that do not count toward the diff cap, such as ORM migration snapshots
 # test_globs: ["**/*.test.*", "**/tests/**"]   # what counts as a test file for the test-first check

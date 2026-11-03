@@ -51,7 +51,7 @@ act('install .github/workflows/flow-gates.yml and flow-merge.yml', () => {
     const ciConfig = {
       topology: 'single', flow_dir: '.flow', targets: [{ ...target, path: '.', required_checks: target.required_checks ?? cfg.merge.required_checks }],
       tracker: 'none', workspace: cfg.workspace, fallback: cfg.fallback, limits: cfg.limits,
-      merge: cfg.merge, test_globs: cfg.test_globs,
+      merge: cfg.merge, test_globs: cfg.test_globs, diff_exempt_globs: cfg.diff_exempt_globs,
     };
     const fill = (file) => readFileSync(join(kit, 'templates/ci', file), 'utf8')
       .replaceAll('__FLOW_TARGET__', target.tag)

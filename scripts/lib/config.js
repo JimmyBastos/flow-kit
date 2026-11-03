@@ -13,6 +13,7 @@ export const DEFAULTS = {
   limits: { max_attempts_per_task: 3, max_task_diff_lines: 300, max_spec_lines: 60, max_plan_lines: 60 },
   merge: { auto: true, required_checks: ['flow-gates / gates'], high_risk_paths: ['**/migrations/**', '**/auth/**', '.github/**', 'infra/**'] },
   test_globs: ['**/*.test.*', '**/*.spec.*', '**/test/**', '**/tests/**', '**/__tests__/**', '**/test_*.py', '**/*_test.go'],
+  diff_exempt_globs: [],
 };
 
 // Paths an agent must never auto-merge changes to: they are the guardrails themselves.
@@ -88,6 +89,7 @@ export function validate(cfg) {
   for (const k of ['max_attempts_per_task', 'max_task_diff_lines', 'max_spec_lines', 'max_plan_lines']) {
     if (!Number.isInteger(l?.[k]) || l[k] < 1) errors.push(`limits.${k} must be a positive integer`);
   }
+  if (cfg.diff_exempt_globs !== undefined && (!Array.isArray(cfg.diff_exempt_globs) || cfg.diff_exempt_globs.some((x) => typeof x !== 'string' || !x.trim()))) errors.push('diff_exempt_globs must be a list of globs');
   if (cfg.merge?.required_checks !== undefined && (!Array.isArray(cfg.merge.required_checks) || cfg.merge.required_checks.some((x) => typeof x !== 'string' || !x.trim()))) errors.push('merge.required_checks must be a list of check names');
   if (cfg.merge?.auto && (!Array.isArray(cfg.merge.required_checks) || cfg.merge.required_checks.length === 0)) errors.push('merge.auto requires at least one merge.required_checks entry');
   return errors;
