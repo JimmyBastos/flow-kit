@@ -15,7 +15,13 @@ const [outcome, ...rest] = fs.readFileSync(scriptFile, 'utf8').split('\n').filte
 fs.writeFileSync(scriptFile, rest.join('\n'));
 
 let result;
-if (prompt.startsWith('# flow-review')) {
+if (prompt.startsWith('# flow-orchestrate') || prompt.startsWith('# flow-sync')) {
+  if (outcome === 'error') {
+    console.log(JSON.stringify({ type: 'result', is_error: true, result: 'limit reached' }));
+    process.exit(0);
+  }
+  result = { status: 'done', summary: 'nothing to do' };
+} else if (prompt.startsWith('# flow-review')) {
   const sha = git('rev-parse', 'HEAD');
   const marker = `## Review\n<!-- flow-review sha=${sha} recommendation=${outcome} -->`;
   execFileSync('gh', ['pr', 'comment', argument('pr'), '-R', argument('repo'), '--body', marker]);

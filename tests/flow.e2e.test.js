@@ -97,3 +97,34 @@ describe('questions and limits', () => {
     expect(product.flow('launch', 'feat/02').stdout).toMatch(/refused: feat\/02: dependencies not merged/);
   });
 });
+
+describe('the change signal', () => {
+  const changed = product => product.flow('status', '--changed-exit').status === 0;
+
+  it('is not consumed by reading the status', () => {
+    const product = createSandbox();
+
+    product.flow('status', '--json');
+    product.flow('status');
+
+    expect(changed(product)).toBe(true);
+  });
+
+  it('is consumed by a finished tick, so the next tick has nothing to do', () => {
+    const product = createSandbox();
+    product.script('done');
+
+    expect(product.flow('tick').stdout).toMatch(/nothing to do/);
+    expect(changed(product)).toBe(false);
+    expect(product.flow('tick').stdout).toMatch(/nothing changed/);
+  });
+
+  it('survives a tick whose orchestrator run failed', () => {
+    const product = createSandbox();
+    product.script('error');
+
+    product.flow('tick');
+
+    expect(changed(product)).toBe(true);
+  });
+});
