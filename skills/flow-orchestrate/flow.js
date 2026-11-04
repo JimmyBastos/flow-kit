@@ -444,7 +444,10 @@ function cmdTick(cfg, flags) {
   writeFileSync(lock, String(process.pid));
   try {
     const dir = runDir(cfg, 'orchestrator');
-    const args = `flow.js: node ${SELF}\nhub: ${cfg.hub}\nhuman: ${cfg.human || 'the repo owner'}\nrepos: ${JSON.stringify(Object.fromEntries(Object.entries(cfg.repos).map(([k, r]) => [k, r.github])))}`;
+    // --force must reach the orchestrator too: its first rule is to stop when status says changed: false, so a
+    // forced tick has to tell it to act anyway (the unstick path after a tick that consumed the signal wrongly).
+    const forced = flags.has('--force') ? '\nforce: this tick was forced; act even when status says changed: false' : '';
+    const args = `flow.js: node ${SELF}\nhub: ${cfg.hub}\nhuman: ${cfg.human || 'the repo owner'}\nrepos: ${JSON.stringify(Object.fromEntries(Object.entries(cfg.repos).map(([k, r]) => [k, r.github])))}${forced}`;
     const r = runAgent(cfg, { cwd: cfg.hub, access: 'orchestrator', role: 'orchestrator', skill: 'flow-orchestrate', args, dir, kind: 'tick' });
     logEvent(cfg, { id: 'orchestrator', action: 'tick', detail: `${r.agent}/${r.model}: ${r.summary || r.reason || r.status}`, session_id: r.session_id, usage: r.usage });
     console.log(r.summary || r.reason || r.status);

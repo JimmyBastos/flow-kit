@@ -70,6 +70,15 @@ describe('OpenCode permissions', () => {
     expect(keys.indexOf('git push *')).toBeGreaterThan(keys.indexOf('git status *'));
   });
 
+  it('mirrors the shell rules onto the bash alias, so no flat bash deny can hide the shell tool', () => {
+    expect(p.bash).toEqual(p.shell);
+    const tracker = opencodeConfig(buildSettings('tracker', { flowJs: '/kit/flow.js' })).permission;
+    expect(tracker.bash).toEqual(tracker.shell);
+    const noBashRules = opencodeConfig({ permissions: { allow: ['Read'] } }).permission;
+    expect(noBashRules.bash).toBe('deny');
+    expect(noBashRules.shell).toBe('deny');
+  });
+
   it('keeps secrets unreadable and .flow and .claude read-only', () => {
     expect(p.read).toMatchObject({ '*': 'allow', '.env': 'deny', '**/.env': 'deny' });
     expect(p.edit).toMatchObject({ '*': 'allow', '.flow/**': 'deny', '**/.flow/**': 'deny', '**/.claude/**': 'deny' });

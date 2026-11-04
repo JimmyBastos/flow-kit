@@ -127,6 +127,22 @@ describe('the change signal', () => {
 
     expect(changed(product)).toBe(true);
   });
+
+  it('reaches the orchestrator on a forced tick even when nothing changed', () => {
+    const product = createSandbox();
+    product.script('done', 'done');
+
+    product.flow('tick');
+    expect(product.flow('tick').stdout).toMatch(/nothing changed/);
+    expect(product.calls().length).toBe(1);
+
+    const forced = product.flow('tick', '--force');
+    expect(forced.status, forced.stderr).toBe(0);
+    const calls = product.calls();
+    expect(calls.length).toBe(2);
+    expect(calls.at(-1).skill).toBe('flow-orchestrate');
+    expect(calls.at(-1).forced).toBe(true);
+  });
 });
 
 describe('agents', () => {
