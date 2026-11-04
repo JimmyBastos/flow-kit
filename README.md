@@ -45,7 +45,7 @@ It writes `.flow/flow.json` and installs the AI validation gates in each repo: `
 
 ```
 .flow/flow.json                 product, repos, models, parallel, human
-.flow/<feature>/spec.md         what and why          you approve
+.flow/<feature>/spec.md         what and why          you approve; `after: [feature]` waits for other features
 .flow/<feature>/plan-<repo>.md  how, per repo          AI, reviewed
 .flow/<feature>/tasks/NN-*.md   one task each          AI, reviewed; decisions appended on merge
 ```
@@ -57,6 +57,7 @@ Status is never written. `flow.js` derives it from these files, the branches, th
 | Rule | Enforced by |
 |---|---|
 | Only you write or change a spec | worker settings deny writes to `.flow/`; only `/flow-spec`, run with you, writes it |
+| A feature waits for the features in its `after:` | `launch --plan` refuses until every task of those features is merged |
 | No task starts on a stale plan | `launch` refuses when the plan's `spec_sha` differs from the spec |
 | One run per task; at most `parallel` runs | `launch` refuses otherwise |
 | Workers don't push or start other agents | `settings/worker.json`: a strict allowlist, fail-closed, with user settings and hooks not loaded; `flow.js` pushes |

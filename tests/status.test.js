@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildStatus, deriveState, readFeatures, readPrFacts } from '../skills/flow-orchestrate/flow.js';
+import { buildStatus, checkLaunch, deriveState, readFeatures, readPrFacts } from '../skills/flow-orchestrate/flow.js';
 import { aConfig, aHubTree, aPlannedFeature, aPlanFile, aPr, aReview, anEscalation, aComment, SPEC_SHA } from './support/builders.js';
 
 function statusOf(files, { prs = [], hubPrs = [], running = [], lastRuns = {}, checks = 'pass' } = {}) {
@@ -115,5 +115,32 @@ describe('escalations', () => {
     expect(facts.escalation).toEqual({ open: false, replied: true });
     expect(facts.replies).toEqual([{ author: 'me', body: 'Go with A' }]);
     expect(deriveState({ kind: 'task', plan_current: true, pr: facts })).toBe('human-replied');
+  });
+});
+
+describe('features that wait for other features', () => {
+  const later = after => ({ '.flow/later/spec.md': `---\nafter: ${after}\n---\n# Later` });
+  const mergedTasks = ['01', '02', '03'].map((nn, i) => aPr({ number: i + 1, headRefName: `flow/feat/${nn}`, state: 'MERGED' }));
+
+  it('reads after: as a list, written either way', () => {
+    expect(readFeatures(aHubTree(later('feat'))).later.spec.after).toEqual(['feat']);
+    expect(readFeatures(aHubTree(later('[feat, other]'))).later.spec.after).toEqual(['feat', 'other']);
+    expect(readFeatures(aHubTree(aPlannedFeature())).feat.spec.after).toEqual([]);
+  });
+
+  it('holds the plan until every task of the earlier feature is merged', () => {
+    const files = { ...aPlannedFeature(), ...later('[feat]') };
+    const waiting = statusOf(files, { prs: mergedTasks.slice(0, 2) });
+
+    expect(stateOf(waiting, 'later/plan')).toBe('blocked');
+    expect(waiting.features.find(f => f.name === 'later').items[0].blocked_by).toEqual(['feat']);
+    expect(checkLaunch(aConfig(), waiting, 'later/plan', 'plan')).toMatch(/waiting for features to complete \(feat\)/);
+
+    expect(stateOf(statusOf(files, { prs: mergedTasks }), 'later/plan')).toBe('ready');
+  });
+
+  it('holds the plan while the earlier feature is not planned, or not known', () => {
+    expect(stateOf(statusOf({ ...withoutPlan(), ...later('feat') }), 'later/plan')).toBe('blocked');
+    expect(stateOf(statusOf(later('missing')), 'later/plan')).toBe('blocked');
   });
 });
