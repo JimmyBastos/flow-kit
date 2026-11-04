@@ -1,6 +1,6 @@
 ---
 name: flow-review
-description: Headless. Review a PR at its head commit: run the repo's own validation gates, check the acceptance criteria and the spec, and post one short review comment with a merge, fix or escalate recommendation. Started by flow.js launch. Never edits code.
+description: Headless. Review a PR at its head commit - run the repo's own validation gates, check the acceptance criteria and the spec, and post one short review comment with a merge, fix or escalate recommendation. Started by flow.js launch. Never edits code.
 ---
 
 # flow-review

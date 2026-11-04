@@ -19,6 +19,13 @@ describe('the kit', () => {
       expect(frontmatterField(read(skill), 'description').length).toBeGreaterThan(60);
     });
 
+    it('has frontmatter that strict YAML parsers accept, or skill installers skip it', () => {
+      const description = frontmatterField(read(skill), 'description');
+
+      expect(description).not.toMatch(/: /);
+      expect(description).not.toMatch(/^['"&*!|>%@`#]/);
+    });
+
     it('stays short enough to read in full', () => {
       expect(read(skill).split('\n').length).toBeLessThanOrEqual(60);
     });
