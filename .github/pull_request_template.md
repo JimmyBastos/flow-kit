@@ -1,20 +1,18 @@
-## Summary
-<!-- 1-5 bullets. Behavior, not files. -->
+## What
+
+<!-- At most 5 bullets. Behavior, not files. -->
+
 -
 
-## Type
-<!-- Keep one. -->
-feat | fix | refactor | docs | test | ci | chore
+## Why
 
-## Breaking
-<!-- "none", or: what changes for existing configs/projects + migration step. -->
-none
+<!-- At most 3 sentences. -->
 
-## Verification
+## Notes
+
+<!-- Optional: breaking changes, migration steps, decisions taken. -->
+
+## Validations
+
 - [ ] `npm test`
-- [ ] `npm run fixtures`
-- [ ] Docs, templates, and skills match the change
-
-## Linked
-<!-- Issue, discussion, or "none". -->
-none
+- [ ] Skills and README match the change

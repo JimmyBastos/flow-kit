@@ -1,40 +1,43 @@
 ---
 name: flow-init
-description: Set up flow-kit in a project. Detects topology and stack, drafts code rules and invariants from the existing code, asks the user to approve them, writes flow.config.yaml, installs the protection scripts, hooks and CI, and verifies with doctor. Use once per project, or to re-check an existing setup.
+description: Set up flow-kit for a product - write .flow/flow.json in the hub repo, install the AI validation gates and rules in each repo, install the orchestrator settings, and create the Orca automation. Use once per product, or again to add a repo or check the setup.
 ---
 
 # flow-init
 
-Goal: set the project up so that `/flow-run` can run without you, with the checks in place. You are stack-agnostic: you ADOPT what the project already uses and only SUGGEST tools where a gap exists.
+Interactive, with the user. Kit files: this skill's `templates/` folder and `../flow-orchestrate/`.
 
-## 1. Detect (read only, no questions yet)
-- Topology: one repo with one deployable = `single`; one repo with several packages/apps = `monorepo`; sibling repos that form one product = `multi` (identify targets and the repo that owns the configured flow folder).
-- Record `flow_dir` as the path to the shared flow folder, relative to `flow.config.yaml`. In multi topology, identify the hub and each target tag.
-- Stack per target, by manifest: `package.json` (lockfile tells npm/pnpm/yarn/bun), `pyproject.toml`/`requirements.txt` (uv/poetry/pip), `go.mod`, `Cargo.toml`, `pom.xml`/`build.gradle*`, `Gemfile`, `composer.json`, `mix.exs`, `*.csproj`.
-- Existing gate commands: scripts in the manifest, `Makefile`/`justfile` targets, CI files. Reuse them verbatim.
-- Existing instructions: `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`, `CONTRIBUTING.md`. Preserve useful guidance. Do not overwrite or duplicate existing code rules.
-- Secret-like tracked files: run `node <kit>/scripts/doctor.js --ci`. If it reports tracked secrets, tell the user now (rotate, `git rm --cached`, purge history).
+## 1. Detect (read only)
+- The hub: the repo that will hold `.flow/` (for one repo, the repo itself). The repos: local paths, default branch, GitHub `owner/name` (`gh repo view --json nameWithOwner`).
+- For each repo: the stack, and the lint, typecheck and test commands (manifests, `Makefile`, CI files). The env file the tests need (`.env.test`, `.env.example`, or the env block of CI).
+- Existing gates and rules: `.agents/` or `.claude/` skills and agents, `docs/rules/`, `AGENTS.md`, the PR template. Keep everything that exists; never overwrite.
+- Duplicate guard layers (`.claude/settings.json` deny lists that block `git rebase` or `git merge`, shell guard hooks). List them; the user decides whether to remove them.
 
-## 2. Suggest tools for what is missing
-For each of lint, typecheck, test, build, e2e: if the project has a command, use it. If not, propose 1 to 3 options that fit the detected stack (name the tool and the install command) and ask the user to pick or skip. Never install a tool without asking. List the gates in the config from fastest to slowest. e2e is optional; if the project runs a service, propose a black-box runner and how to start the stack.
+## 2. Ask (one round)
+Repos and their tags, the `human` GitHub login for escalations, `parallel` (default 2), the models per role (defaults: orchestrator opus, plan opus, implement sonnet, fix_retry opus, review opus), and per repo the extra commands agents may run (`allow`, for example `["Bash(pnpm *)"]`).
 
-## 3. Ask (one round, batched)
-- Capability candidates in priority order. The template's `auto/default` candidates use installed harness defaults. Replace them when a project needs a specific model or data policy. Capabilities: `planning`, `research` (with `subagent_candidates`), `implementation` (optional `retry_candidates`), `review`. Projects can add capabilities. Try a fallback only when its adapter reports that a harness or model is unavailable.
-- Review prefers a harness different from implementation. It may use the same harness only when no independent candidate is available. Claude models require Claude Code.
-- Tracker: `linear`, `github-issues` or `none`.
-- Workspace: `git-worktree` (default) or `orca`. Pick `orca` only if the user has Orca installed.
-- `high_risk_paths` (suggest from what you found: migrations, auth, payments, infra, CI, secrets handling).
+## 3. Rules (blocking: the user approves)
+For each repo without `docs/rules/`: read representative code and draft `docs/rules/index.md`, `conventions.md`, one file per area, and `invariants.md` in the formats of `templates/docs/rules/`. Use 8–20 rules: short, observable, each with an id. Show them. **Do not continue until the user approves or edits them.**
 
-## 4. Draft rules and invariants from the code
-Read representative code. Reuse existing `docs/rules/`. Add only rules needed for implementation or review. Each rule must state one short, observable behavior. Mark it `enforce: lint` or `enforce: review`. Add an invariant only when it must hold across the whole repo. Add an index with path globs.
-**Stop here and show the rules to the user. Do not continue until they approve or edit them.** This is a blocking decision point.
+## 4. Install, per repo
+- Copy any file from `templates/` that does not exist yet: `validate`, `audit`, the `rule-auditor`, `qa-review` and `test-author` agents, the PR template. Fill in `checklist.md` (the real commands) and `layer-map.md` (the real layers).
+- Link `.claude/skills/<name>` → `.agents/skills/<name>` and `.claude/agents/<name>.md` → `.agents/agents/<name>.md` when the repo uses that layout.
+- Add to `AGENTS.md`, if missing: the check commands, and "Sync a branch with `git merge origin/<default>`, never rebase."
+- Commit `chore(flow): install validation gates and rules`, and open a PR. The user merges it, since it changes the AI's own rules.
 
-## 5. Install
-1. Write `flow.config.yaml` from `templates/flow.config.yaml` with the answers. Run `node <kit>/scripts/doctor.js --ci` to validate it; fix every error.
-2. Write `AGENTS.md` (template + the project specifics from step 1). `CLAUDE.md` contains only `@AGENTS.md`.
-3. Create the configured flow folder, `queue.md` (from `templates/queue.md`), `backlog.md`, `active/`, `done/`, and `decisions/`.
-4. Insert target-specific toolchain and install steps in the CI template. For a multi target, run setup with `FLOW_CONFIG` and `FLOW_TARGET` set. Setup embeds a CI-only config projection, so target CI does not need hub credentials.
-5. Explain the two workflows: `flow-gates.yml` runs the code, and `flow-merge.yml` judges and merges with base-branch code. The merge job blocks when configured CI checks are missing or failing. Manual GitHub merges can bypass it. Merges made with `GITHUB_TOKEN` do not start `on: push` deploy workflows, so name the deploy option (a GitHub App token, or `on: workflow_run`).
-6. Run `node scripts/flow/doctor.js`. Report every FAIL and WARN verbatim. Init is not done while any FAIL remains.
+## 5. Hub
+- Write `.flow/flow.json`:
+  ```json
+  {"product":"<name>","human":"<login>","parallel":2,
+   "models":{"orchestrator":"opus","plan":"opus","implement":"sonnet","fix_retry":"opus","review":"opus"},
+   "repos":{"<tag>":{"path":"<relative path>","github":"<owner/name>","default":"main","env_file":"<path or null>","allow":["Bash(pnpm *)"]}}}
+  ```
+- Commit and push.
 
-Commit as one commit: `chore(flow): initialize flow-kit`. Do not push.
+## 6. Tick
+The orchestrator always runs as `node <flow.js> tick --hub <hub>`. That starts a headless session with `../flow-orchestrate/settings/orchestrator.json`, so its limits hold. Orca automations run agents with permissions skipped, so the automation only runs this one command. Create it disabled, and show the user how to enable it:
+`orca automations create --name flow-<product> --trigger "*/5 * * * *" --provider claude --extra-agent-args="--model haiku" --workspace path:<hub> --prompt "Run node <flow.js> tick --hub <hub> and print its output. Do nothing else." --precheck "node <flow.js> status --changed-exit --hub <hub>" --precheck-timeout 30 --disabled --json`
+For testing and debugging, run `/loop 5m run node <flow.js> tick --hub <hub>` in a session in the hub.
+
+## 7. Check
+`node <flow.js> status` runs without errors, `gh auth status` passes, and `orca status` is ready. Report every problem verbatim.

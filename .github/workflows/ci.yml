@@ -1,7 +1,4 @@
-# CI for flow-kit itself. The kit's gates are its own test suite: unit tests, the
-# installer e2e, the kit self-lint (skills may only reference real files), and the
-# fixture scenarios across single / monorepo / multi topologies. Zero dependencies,
-# so there is no install step.
+# CI for flow-kit itself: unit and end-to-end tests for flow.js, and the kit lint (skills reference only real files).
 # Practice what the kit installs in projects: make "test" a required status check
 # on main (Settings -> Branches -> Require status checks), and block force pushes.
 name: ci
@@ -23,10 +20,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [20, 22, 24]   # engines: >=20
+        node: [22, 24]   # vitest needs Node 22.12+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: "${{ matrix.node }}" }
-      - name: Tests (units, installer e2e, self-lint, fixture scenarios)
+      - run: npm ci
+      - name: Tests
         run: npm test

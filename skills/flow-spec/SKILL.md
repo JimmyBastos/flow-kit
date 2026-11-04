@@ -1,20 +1,31 @@
 ---
 name: flow-spec
-description: Write the feature spec (what and why, about 60 lines) from research.md or the requirement. Use after flow-research, or from flow-intake, before flow-plan. The user approves the spec and the plans together in flow-plan.
+description: Interactive. Research a feature with the user and write its spec (what and why, success criteria). The only step that creates or changes a spec. Use to start a feature, or with --amend to change an approved one.
 ---
 
 # flow-spec
 
-Input: `<flow_dir>/active/<slug>/research.md`, or the requirement when there was no research. Output: `<flow_dir>/active/<slug>/spec.md` from `templates/spec.md`, with `Status: draft`.
+Run in the hub repo (the one with `.flow/flow.json`), with the user. Output: `.flow/<feature>/spec.md`, about 40 lines.
 
-## Procedure
-1. Read `research.md` if it exists, then `AGENTS.md` and `docs/rules/index.md`. If `research.md` has open questions that affect scope, go back to `/flow-research`.
-2. Write the spec. Sections: Goal, Problem, Context, Scope, Not included, Success criteria. Write each success criterion as `- SC-n: ...`, observable and testable by someone who has not read the code. List the targets (tags from `flow.config.yaml`) the feature touches in the header.
-3. **No how.** No file paths, no libraries, no schema. Those belong to the plan. Reference rules by id; never copy them.
-4. **Size.** Hard cap `limits.max_spec_lines`. Check with `node scripts/flow/gates.js size --feature <slug>`. If it does not fit, the feature is too big: split it into two slugs and say so. Never compress to fit.
-5. Commit: `docs(flow): spec <slug>`. There is no approval here. `/flow-plan` shows the spec and the plans together, so the user decides once per feature.
+## Steps
+1. **Ask for existing material first:** diagrams, exports, notes, earlier specs, tracker items. Read what the user gives, plus `.flow/*/spec.md`, `docs/adr/` and `docs/rules/` in the repos listed in `.flow/flow.json`. Use subagents (a small model) for code reading.
+2. **Check every path you cite** by opening it. Never cite from memory.
+3. **One round of questions.** Ask everything that changes the shape of the work (inputs, names, scope, data, success criteria) in a single round of at most 4 questions per batch, each with your recommended answer and why. "Go with your recommendations" is a valid answer. Never ask what the code or the docs answer.
+4. **Challenge:** if the idea duplicates something, conflicts with a rule, or is bigger than one spec, say so and propose a split.
+5. **Write the spec** in this format. No file paths, libraries or schema; those are the plan's.
+   ```
+   # <Feature title>
+   Repos: <tags from flow.json>
+   ## Goal        one sentence
+   ## Problem     what is wrong today, for whom
+   ## Scope       bullets
+   ## Not included  bullets
+   ## Success criteria
+   - SC-1: <observable, testable by someone who has not read the code>
+   ```
+6. **A decision that governs future features** goes in `docs/adr/NNNN-<slug>.md` (Context, Decision, Consequences, at most about 20 lines). Ask before adding one.
+7. **Approval.** Show the spec. On the user's explicit yes, commit `docs(flow): spec <feature>` and push to the default branch. The orchestrator plans it on its next tick.
 
-Next: `/flow-plan <slug>`.
+`--quick "<text>"`: for a small task, write a spec with Goal and 1–3 success criteria, one confirmation question, then commit.
 
-## Writing
-Follow the Writing section of `AGENTS.md`: plain words, named things, short complete sentences, the decision first.
+`--amend <feature>`: edit only what the user changes, show the diff, commit on yes. The plan's `spec_sha` no longer matches, so no new task of this feature starts until the orchestrator re-plans it.

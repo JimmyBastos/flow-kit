@@ -1,13 +1,19 @@
 {
   "name": "flow-kit",
-  "version": "0.1.0",
-  "description": "Run AI-written features to a merged pull request, with tests and review, in any harness.",
+  "version": "2.0.0",
+  "description": "An AI orchestrator that takes approved specs to merged pull requests, on Orca, with PRs as the only conversation.",
   "type": "module",
   "license": "Apache-2.0",
-  "engines": { "node": ">=20" },
-  "scripts": {
-    "test": "node --test",
-    "fixtures": "node --test tests/fixtures.test.js"
+  "engines": {
+    "node": ">=22.12"
   },
-  "files": ["skills", "adapters", "templates", "schemas", "scripts"]
+  "scripts": {
+    "test": "vitest run"
+  },
+  "files": [
+    "skills"
+  ],
+  "devDependencies": {
+    "vitest": "^5.0.5"
+  }
 }

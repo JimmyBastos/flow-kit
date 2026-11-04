@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "defaultMode": "dontAsk",
+    "allow": [
+      "Read", "Glob", "Grep",
+      "Bash(node __FLOW_JS__ status *)", "Bash(node __FLOW_JS__ launch *)", "Bash(node __FLOW_JS__ merge *)",
+      "Bash(gh pr view *)", "Bash(gh pr list *)", "Bash(gh pr comment *)"
+    ],
+    "deny": ["Edit", "Write", "NotebookEdit", "Read(**/.env)", "Read(**/.env.*)"]
+  }
+}

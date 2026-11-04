@@ -1,38 +1,47 @@
 ---
 name: flow-review
-description: Review a task's diff with the configured review capability, preferring a harness different from implementation. Run machine gates, check rules and invariants, then write verdict.json. Never edit code.
+description: Headless. Review a PR at its head commit: run the repo's own validation gates, check the acceptance criteria and the spec, and post one short review comment with a merge, fix or escalate recommendation. Started by flow.js launch. Never edits code.
 ---
 
 # flow-review
 
-Read-only on code. You write exactly one file: `.flow/active/<slug>/tasks/<id>/verdict.json` (schema: `schemas/verdict.schema.json`), inside the code worktree. This review artifact travels with the pull request so target CI can verify it. Shared state and decisions stay under `FLOW_DIR`. Review in a new session and prefer a different harness from implementation. If `state.md` shows this is the implementing session, stop and say so.
+You run headless in the PR's worktree. Never edit or commit code. Your output is one PR comment. Arguments: the PR number, the repo (`owner/name`, pass it as `-R` to every `gh` call), the review comment file and the PR body file, both outside the repo.
 
-Use the `review` capability selected for the task.
+## Steps
+1. `HEAD=$(git rev-parse HEAD)`. Read the PR (`gh pr view --json number,body,comments`), its task file (the `Task:` line), the plan, and the spec's success criteria. For a plan PR (branch `flow/<feature>/plan`), review the plan and task files against the spec instead: every SC covered, nothing from Not included, no extra scope, matching contracts, no file over its size.
+2. **Run the repo's gates**: every unticked item in the PR body's **Validations** list, except `/audit`. Skills run by name; agents run as subagents. Each gate's failure is a **block** finding.
+3. **Acceptance criteria:** for each criterion, find where the diff meets it and which test covers it. Missing or untested is a **block**.
+4. **Drift:** a difference from the plan that is listed under Notes with a reason is fine. An unlisted difference is a **block**. A change to *what* (scope, a success criterion, a cross-repo contract) is an **escalate**.
+5. **PR description:** too long, file by file, or holding agent-facing text is a **block**.
+6. **Evidence:** cite `file:line` and quote the code. Re-open the file before reporting. Style no rule states is not a finding.
+7. **Commands:** one command per Bash call, run from the current directory: no pipes, `&&`, `;` or `git -C`. Read files with the Read tool; list them with `git ls-files`, search with `git grep`. A denied command is expected, not a blocker: use one of these allowed ways and continue.
 
-## Step 0: run the gates first (they are fast and give the same result every time)
-Run and capture, in order, stopping at the first failure:
-1. `node scripts/flow/gates.js run --target <tag> [--e2e]` (include `--e2e` when the target has an `e2e` command)
-2. `node scripts/flow/gates.js diff --base <default branch>`
-3. For `Type: fix` tasks: `node scripts/flow/gates.js testfirst --base <default branch> --prove --target <tag>`. It needs a clean working tree, and it proves the test fails without the fix.
-If any fails: verdict `fail` with one violation `rule: GATE`, `severity: block`, `why:` the failing command and its last output lines. Do NOT run the AI passes. Write the verdict and stop.
+## Recommendation
+- `escalate` only for a decision the user must make: scope, product, irreversible data or production effects, the AI's own rules, credentials. Say the decision, the options, and your recommendation.
+- `fix` if any block finding remains.
+- `merge` otherwise.
 
-## Pass 1: acceptance and rules
-Record `reviewed_commit=$(git rev-parse HEAD)` now. Read the diff against the default branch.
-- For each acceptance criterion of the task: find where the diff (code and test) satisfies it. Missing or untested = violation `rule: SC-n`.
-- If the diff deletes, skips, or weakens an existing test, find the reason in the commit message and the criteria. No reason, or a reason that does not match the cause = violation `rule: TEST`, `severity: block`. If you cannot tell whether the test or the code was wrong, use `ask`.
-- Load only rule files matching the touched paths and only rules marked `enforce: review`. A violation needs the rule id, file and line, and the offending code quoted in `why`.
+## Post
+Copy the PR body to the PR body file, tick the Validations boxes that passed, change nothing else, and apply it with `gh pr edit <pr> -R <repo> --body-file <file>`. Write the review to the review comment file and post it with `gh pr comment <pr> -R <repo> --body-file <file>`:
+```
+## Review: ✅ Merge | 🔧 Fix | ⚠️ Escalate
+**Why:** <one sentence>
 
-## Pass 2: invariants
-Read `docs/rules/invariants.md`. For every changed file, ask how the change could break each relevant invariant (also through callers you must open), including paths no rule file matches. Same evidence bar.
+| | |
+|---|---|
+| Checks | <gates run, pass or fail> |
+| Acceptance criteria | <n> / <m> met |
+| Findings | <b> block · <a> ask · <l> log |
+| Risk | <low, or name the risky part> |
 
-## Evidence required (do not report what you cannot prove)
-Before reporting any violation, re-open the file and confirm the line and the rule really conflict. If you cannot cite file:line and a quote, do not report it. Style opinions that no rule states are not violations.
+**Needs you:** <escalate only: the decision, the options, the recommendation>
 
-## Severity
-- `block`: breaks a rule, invariant, or acceptance criterion; or a security/data-loss risk.
-- `ask`: you cannot decide from the docs (a judgment the user should make) but it does not block the merge.
-- `log`: real but minor; recorded only.
-`verdict` is `fail` iff any violation is `block`.
+<details><summary>Acceptance criteria</summary> criterion · where it is met · test </details>
+<details><summary>Findings</summary> severity · rule · file:line · quote · why </details>
+<details><summary>Not checked</summary> … </details>
 
-## Output
-Write the JSON, validate it (`node scripts/flow/verdict.js <file>` must exit 0 or 1, never 3), and commit only that file: `chore(flow): review <slug>/<id> <pass|fail>`. Do not push; the implementer's runner or the user does. Update `state.md`: on pass `next_step="open pull request"`; on fail `next_step="fix block violations in verdict.json"`, and `next_harness=<implement harness>`. Print the verdict summary.
+<!-- flow-review sha=<HEAD> recommendation=<merge|fix|escalate> -->
+```
+
+## Finish
+Your last message is exactly one JSON object: `{"status":"done","recommendation":"merge|fix|escalate","sha":"<HEAD>"}`.
