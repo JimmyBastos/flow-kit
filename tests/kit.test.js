@@ -26,6 +26,13 @@ describe('the kit', () => {
       expect(description).not.toMatch(/^['"&*!|>%@`#]/);
     });
 
+    it('has no hidden folders, which skill installers drop', () => {
+      const hidden = dir => readdirSync(dir, { withFileTypes: true }).filter(e => e.isDirectory())
+        .flatMap(e => (e.name.startsWith('.') ? [join(dir, e.name)] : hidden(join(dir, e.name))));
+
+      expect(hidden(join(skillsDir, skill))).toEqual([]);
+    });
+
     it('stays short enough to read in full', () => {
       expect(read(skill).split('\n').length).toBeLessThanOrEqual(60);
     });
