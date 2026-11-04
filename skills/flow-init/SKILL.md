@@ -20,7 +20,7 @@ Repos and their tags, the `human` GitHub login for escalations, `parallel` (defa
 For each repo without `docs/rules/`: read representative code and draft `docs/rules/index.md`, `conventions.md`, one file per area, and `invariants.md` in the formats of `templates/docs/rules/`. Use 8–20 rules: short, observable, each with an id. Show them. **Do not continue until the user approves or edits them.**
 
 ## 4. Install, per repo
-- Copy any file from `templates/` that does not exist yet: `validate`, `audit`, the `rule-auditor`, `qa-review` and `test-author` agents, the PR template. Fill in `checklist.md` (the real commands) and `layer-map.md` (the real layers).
+- Copy any file from `templates/` that does not exist yet, mapped as (`templates/agents/` → `.agents/`, `templates/github/` → `.github/`, `templates/docs/` → `docs/`): `validate`, `audit`, the `rule-auditor`, `qa-review` and `test-author` agents, the PR template. Fill in `checklist.md` (the real commands) and `layer-map.md` (the real layers).
 - Link `.claude/skills/<name>` → `.agents/skills/<name>` and `.claude/agents/<name>.md` → `.agents/agents/<name>.md` when the repo uses that layout.
 - Add to `AGENTS.md`, if missing: the check commands, and "Sync a branch with `git merge origin/<default>`, never rebase."
 - Commit `chore(flow): install validation gates and rules`, and open a PR. The user merges it, since it changes the AI's own rules.
