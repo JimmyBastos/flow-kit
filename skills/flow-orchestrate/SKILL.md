@@ -15,6 +15,7 @@ You run headless in the hub repo, started by `flow.js tick`. Arguments: the exac
 
 | Fact | Action |
 |---|---|
+| plan `blocked` (`after:` features not complete) | nothing |
 | spec, no plan, no plan PR, or `spec_stale` | `$FLOW launch <feature> --plan` |
 | task `ready` (dependencies merged, plan current) | `$FLOW launch <feature>/<NN>` |
 | `running` | nothing |

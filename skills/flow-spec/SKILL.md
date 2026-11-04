@@ -14,6 +14,9 @@ Run in the hub repo (the one with `.flow/flow.json`), with the user. Output: `.f
 4. **Challenge:** if the idea duplicates something, conflicts with a rule, or is bigger than one spec, say so and propose a split.
 5. **Write the spec** in this format. No file paths, libraries or schema; those are the plan's.
    ```
+   ---
+   after: [<feature>, ...]   optional: plan only once every task of these features is merged
+   ---
    # <Feature title>
    Repos: <tags from flow.json>
    ## Goal        one sentence

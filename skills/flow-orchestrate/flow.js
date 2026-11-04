@@ -87,7 +87,10 @@ export function readFeatures(tree) {
     const m = f.match(/^\.flow\/([^/]+)\/(spec\.md|plan-([\w-]+)\.md|tasks\/(\d+)-[\w.-]+\.md)$/);
     if (!m) continue;
     const feat = (features[m[1]] ??= { name: m[1], spec: null, plans: {}, tasks: {} });
-    if (m[2] === 'spec.md') feat.spec = { path: f, sha: tree.blob(f) };
+    if (m[2] === 'spec.md') {
+      const after = frontmatter(tree.show(f)).fm.after;
+      feat.spec = { path: f, sha: tree.blob(f), after: [after ?? []].flat().filter(Boolean) };
+    }
     else if (m[3]) feat.plans[m[3]] = { path: f, spec_sha: frontmatter(tree.show(f)).fm.spec_sha };
     else {
       const { fm, body } = frontmatter(tree.show(f));
@@ -157,15 +160,25 @@ export function buildStatus(cfg, { tree = readHubTree(cfg), prsByRepo, pid = id 
   prsByRepo ??= Object.fromEntries(Object.entries({ ...cfg.repos, __hub: cfg.hubRepo }).map(([k, r]) => [k, listPrs(r)]));
   const prFor = (repoKey, branch) => (prsByRepo[repoKey] || []).filter(p => p.headRefName === branch).sort((a, b) => b.number - a.number)[0];
   const out = { product: cfg.product, parallel: cfg.parallel, running: 0, features: [] };
+  const isCurrent = f => { const plans = Object.values(f.plans); return plans.length > 0 && plans.every(p => p.spec_sha === f.spec?.sha); };
+  // A feature is complete when its plan is current and every one of its tasks is merged. `after:` waits on that.
+  const complete = name => {
+    const f = features[name];
+    const tasks = f ? Object.values(f.tasks) : [];
+    return !!f?.spec && isCurrent(f) && tasks.length > 0
+      && tasks.every(t => prFor(t.repo, `flow/${f.name}/${t.nn}`)?.state === 'MERGED');
+  };
   for (const f of Object.values(features)) {
     if (!f.spec) continue;
     const plans = Object.values(f.plans);
-    const planCurrent = plans.length > 0 && plans.every(p => p.spec_sha === f.spec.sha);
-    const feature = { name: f.name, spec: f.spec.path, planned: plans.length > 0, plan_current: planCurrent, spec_stale: plans.length > 0 && !planCurrent, items: [] };
+    const planCurrent = isCurrent(f);
+    const blockedBy = f.spec.after.filter(name => !complete(name));
+    const feature = { name: f.name, spec: f.spec.path, after: f.spec.after, planned: plans.length > 0, plan_current: planCurrent, spec_stale: plans.length > 0 && !planCurrent, items: [] };
     const planId = `${f.name}/plan`;
     const planPr = prFor('__hub', `flow/${f.name}/plan`);
     if (!planCurrent || (planPr && planPr.state === 'OPEN')) {
-      const item = { id: planId, kind: 'plan', repo: '__hub', running: !!pid(planId), last_run: last(planId), pr: planPr ? readPrFacts(planPr, cfg.human) : null };
+      const item = { id: planId, kind: 'plan', repo: '__hub', running: !!pid(planId), last_run: last(planId), pr: planPr ? readPrFacts(planPr, cfg.human) : null,
+        blocked: blockedBy.length > 0, blocked_by: blockedBy };
       if (item.pr?.state === 'OPEN') item.pr.checks = checks(cfg.hubRepo, item.pr.number);
       item.state = deriveState(item);
       feature.items.push(item);
@@ -226,6 +239,7 @@ export function checkLaunch(cfg, status, id, mode) {
   if (item.running) return `${id} is already running`;
   if (status.running >= cfg.parallel) return `parallel limit reached (${status.running}/${cfg.parallel})`;
   if (item.state === 'merged') return `${id} is already merged`;
+  if (item.kind === 'plan' && item.blocked && !item.pr) return `${id}: waiting for features to complete (${item.blocked_by.join(', ')})`;
   if (item.kind === 'task' && !item.plan_current) return `${id}: the plan does not match the current spec; re-plan first`;
   if (item.kind === 'task' && !item.deps_merged && !item.pr) return `${id}: dependencies not merged (${item.depends.join(', ')})`;
   if (mode === 'review' && !item.pr) return `${id}: no PR to review`;
