@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildStatus, checkLaunch, checkMerge, modelFor, readPrFacts } from '../skills/flow-orchestrate/flow.js';
+import { buildStatus, checkLaunch, checkMerge, roleFor, readPrFacts } from '../skills/flow-orchestrate/flow.js';
 import { aConfig, aHubTree, aPlannedFeature, aPlanFile, aPr, aReview, anEscalation } from './support/builders.js';
 
 const statusWith = ({ running = [], prs = [], files = aPlannedFeature() } = {}) =>
@@ -31,10 +31,16 @@ describe('launch', () => {
     expect(checkLaunch(aConfig(), statusWith({ files }), 'feat/01', 'implement')).toMatch(/re-plan first/);
   });
 
-  it('refuses a model that the model policy excludes', () => {
+  it('refuses a role whose every model the model policy excludes', () => {
     const config = aConfig({ model_policy: { deny: ['sonnet'] } });
 
-    expect(checkLaunch(config, statusWith(), 'feat/01', 'implement')).toMatch(/model sonnet is excluded/);
+    expect(checkLaunch(config, statusWith(), 'feat/01', 'implement')).toMatch(/every claude model for implement is excluded/);
+  });
+
+  it('allows a role while one of its models is still allowed', () => {
+    const config = aConfig({ model_policy: { deny: ['sonnet'] }, models: { ...aConfig().models, implement: ['sonnet', 'opus'] } });
+
+    expect(checkLaunch(config, statusWith(), 'feat/01', 'implement')).toBeNull();
   });
 
   it('refuses a review when there is no pull request', () => {
@@ -42,21 +48,21 @@ describe('launch', () => {
   });
 });
 
-describe('model choice', () => {
+describe('role choice', () => {
   const task = fixRounds => ({ kind: 'task', pr: { fix_rounds: fixRounds } });
 
-  it('implements and fixes the first round with the implement model', () => {
-    expect(modelFor(aConfig(), task(0), 'implement')).toBe('sonnet');
-    expect(modelFor(aConfig(), task(1), 'fix')).toBe('sonnet');
+  it('implements and fixes the first round with the implement role', () => {
+    expect(roleFor(task(0), 'implement')).toBe('implement');
+    expect(roleFor(task(1), 'fix')).toBe('implement');
   });
 
-  it('uses the retry model from the second fix round', () => {
-    expect(modelFor(aConfig(), task(2), 'fix')).toBe('opus');
+  it('uses the retry role from the second fix round', () => {
+    expect(roleFor(task(2), 'fix')).toBe('fix_retry');
   });
 
-  it('uses the plan and review models for their runs', () => {
-    expect(modelFor(aConfig({ models: { ...aConfig().models, plan: 'p', review: 'r' } }), { kind: 'plan' }, 'implement')).toBe('p');
-    expect(modelFor(aConfig({ models: { ...aConfig().models, review: 'r' } }), task(0), 'review')).toBe('r');
+  it('uses the plan and review roles for their runs', () => {
+    expect(roleFor({ kind: 'plan' }, 'implement')).toBe('plan');
+    expect(roleFor(task(0), 'review')).toBe('review');
   });
 });
 

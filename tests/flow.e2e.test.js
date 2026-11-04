@@ -128,3 +128,47 @@ describe('the change signal', () => {
     expect(changed(product)).toBe(true);
   });
 });
+
+describe('agents', () => {
+  it('runs a whole task on OpenCode when flow.json names it', () => {
+    const product = createSandbox({ config: { agent: 'opencode' } });
+    product.script('done', 'merge');
+
+    const launch = product.flow('launch', 'feat/01');
+
+    expect(launch.status, launch.stderr).toBe(0);
+    expect(product.task('feat/01')).toMatchObject({ state: 'review-merge' });
+    expect(product.calls().map(c => [c.agent, c.skill])).toEqual([['opencode', 'flow-task'], ['opencode', 'flow-review']]);
+  });
+
+  it('implements on one agent and reviews on the other', () => {
+    const product = createSandbox({ config: { review_agent: 'opencode' } });
+    product.script('done', 'merge');
+
+    product.flow('launch', 'feat/01');
+
+    expect(product.calls().map(c => [c.agent, c.skill])).toEqual([['claude', 'flow-task'], ['opencode', 'flow-review']]);
+    expect(product.task('feat/01').state).toBe('review-merge');
+  });
+
+  it('moves to the next model of the role when one hits its limit', () => {
+    const product = createSandbox({ config: { models: { claude: { implement: ['sonnet', 'opus'] } } } });
+    product.script('limit', 'done', 'merge');
+
+    product.flow('launch', 'feat/01');
+
+    expect(product.calls().map(c => [c.skill, c.model, c.outcome])).toEqual([
+      ['flow-task', 'sonnet', 'limit'], ['flow-task', 'opus', 'done'], ['flow-review', 'opus', 'merge'],
+    ]);
+    expect(product.task('feat/01').state).toBe('review-merge');
+  });
+
+  it('logs which agent and model ran each step', () => {
+    const product = createSandbox({ config: { agent: 'opencode' } });
+    product.script('done', 'merge');
+
+    product.flow('launch', 'feat/01');
+
+    expect(product.flow('status', '--log', '--task', 'feat/01').stdout).toMatch(/opencode\/opencode-go\/glm-5\.3: done/);
+  });
+});

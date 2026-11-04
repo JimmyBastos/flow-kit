@@ -14,7 +14,7 @@ Interactive, with the user. Kit files: this skill's `templates/` folder and `../
 - Duplicate guard layers (`.claude/settings.json` deny lists that block `git rebase` or `git merge`, shell guard hooks). List them; the user decides whether to remove them.
 
 ## 2. Ask (one round)
-Repos and their tags, the `human` GitHub login for escalations, `parallel` (default 2), the models per role (defaults: orchestrator opus, plan opus, implement sonnet, fix_retry opus, review opus), per repo the extra commands agents may run (`allow`, for example `["Bash(pnpm *)"]`), and an optional tracker to mirror tasks to (`linear`: the team key, and the MCP config that has the Linear server, default `.mcp.json` in the hub).
+Repos and their tags, the `human` GitHub login for escalations, `parallel` (default 2), the agent CLI (`claude` or `opencode`), an optional `review_agent` on the other CLI, model overrides per role only where the defaults in `../flow-orchestrate/defaults.json` do not fit, per repo the extra commands agents may run (`allow`, for example `["Bash(pnpm *)"]`), and an optional tracker to mirror tasks to (`linear`: the team key, and the MCP config that has the Linear server, default `.mcp.json` in the hub).
 
 ## 3. Rules (blocking: the user approves)
 For each repo without `docs/rules/`: read representative code and draft `docs/rules/index.md`, `conventions.md`, one file per area, and `invariants.md` in the formats of `templates/docs/rules/`. Use 8–20 rules: short, observable, each with an id. Show them. **Do not continue until the user approves or edits them.**
@@ -29,7 +29,7 @@ For each repo without `docs/rules/`: read representative code and draft `docs/ru
 - Write `.flow/flow.json`:
   ```json
   {"product":"<name>","human":"<login>","parallel":2,
-   "models":{"orchestrator":"opus","plan":"opus","implement":"sonnet","fix_retry":"opus","review":"opus"},
+   "agent":"claude","review_agent":"opencode","models":{"opencode":{"review":["opencode-go/gemini-4-argon"]}},
    "repos":{"<tag>":{"path":"<relative path>","github":"<owner/name>","default":"main","env_file":"<path or null>","allow":["Bash(pnpm *)"]}},
    "tracker":{"kind":"linear","team":"<team key>","mcp_config":".mcp.json"}}
   ```

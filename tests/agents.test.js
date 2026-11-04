@@ -81,9 +81,9 @@ describe('tracker sync', () => {
   });
 
   it('passes only the hub MCP config, and the team and states as arguments', () => {
-    const { args, extra } = syncPlan(cfg({ kind: 'linear', team: 'DOS', states: { started: 'In Progress' } }));
+    const { args, mcpConfig } = syncPlan(cfg({ kind: 'linear', team: 'DOS', states: { started: 'In Progress' } }));
 
-    expect(extra).toEqual(['--mcp-config', '/hub/.mcp.json', '--strict-mcp-config']);
+    expect(mcpConfig).toBe('/hub/.mcp.json');
     expect(args).toMatch(/^hub github: org\/hub$/m);
     expect(args).toMatch(/^tracker: \{"team":"DOS","states":\{"started":"In Progress"\}\}$/m);
   });

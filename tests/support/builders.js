@@ -10,7 +10,8 @@ export function aConfig(overrides = {}) {
     parallel: 2,
     repos: { api: { github: 'org/api', default: 'main', allow: [] } },
     hubRepo: { github: 'org/hub', default: 'main', allow: [] },
-    models: { orchestrator: 'opus', plan: 'opus', implement: 'sonnet', fix_retry: 'opus', review: 'opus' },
+    agent: 'claude',
+    models: { orchestrator: ['opus'], plan: ['opus'], implement: ['sonnet'], fix_retry: ['opus'], review: ['opus'], sync: ['sonnet'] },
     ...overrides,
   };
 }
