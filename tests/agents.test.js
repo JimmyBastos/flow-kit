@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSettings, parseResult, skillPrompt, statusHash, frontmatter } from '../skills/flow-orchestrate/flow.js';
+import { buildSettings, parseResult, skillPrompt, statusHash, frontmatter, syncPlan } from '../skills/flow-orchestrate/flow.js';
 
 describe('agent results', () => {
   it('takes the last JSON object of the final message', () => {
@@ -65,5 +65,31 @@ describe('frontmatter', () => {
 
   it('returns nothing for a file without frontmatter', () => {
     expect(frontmatter('# Title').fm).toEqual({});
+  });
+});
+
+describe('tracker sync', () => {
+  const cfg = tracker => ({ hub: '/hub', tracker, hubRepo: { github: 'org/hub', default: 'main' } });
+
+  it('lets the sync agent read and use the Linear MCP, and nothing else', () => {
+    const { permissions } = buildSettings('tracker', { flowJs: '/kit/flow.js' });
+
+    expect(permissions.defaultMode).toBe('dontAsk');
+    expect(permissions.allow).toEqual(expect.arrayContaining(['mcp__linear', 'Bash(node /kit/flow.js status *)']));
+    expect(permissions.allow.some(a => /launch|merge|gh /.test(a))).toBe(false);
+    expect(permissions.deny).toEqual(expect.arrayContaining(['Edit', 'Write']));
+  });
+
+  it('passes only the hub MCP config, and the team and states as arguments', () => {
+    const { args, extra } = syncPlan(cfg({ kind: 'linear', team: 'DOS', states: { started: 'In Progress' } }));
+
+    expect(extra).toEqual(['--mcp-config', '/hub/.mcp.json', '--strict-mcp-config']);
+    expect(args).toMatch(/^hub github: org\/hub$/m);
+    expect(args).toMatch(/^tracker: \{"team":"DOS","states":\{"started":"In Progress"\}\}$/m);
+  });
+
+  it('refuses a tracker it cannot mirror to', () => {
+    expect(() => syncPlan(cfg(undefined))).toThrow(/no tracker/);
+    expect(() => syncPlan(cfg({ kind: 'jira', team: 'X' }))).toThrow(/only linear/);
   });
 });

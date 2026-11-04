@@ -2,7 +2,7 @@
 
 Approve a spec. An AI orchestrator takes it to merged pull requests. You are asked only when a decision is yours.
 
-flow-kit is 6 skills and one script. The orchestrator is an AI. It plans, starts implementers and reviewers, answers their questions, merges what the review recommends, and asks you on the pull request when it cannot decide. The script, `flow.js`, does the few steps that must be exact: reading the state, starting runs within the limits, and merging only a reviewed commit.
+flow-kit is 7 skills and one script. The orchestrator is an AI. It plans, starts implementers and reviewers, answers their questions, merges what the review recommends, and asks you on the pull request when it cannot decide. The script, `flow.js`, does the few steps that must be exact: reading the state, starting runs within the limits, and merging only a reviewed commit.
 
 It runs on [Orca](https://github.com/stablyai/orca) and Claude Code, with your subscription.
 
@@ -23,8 +23,10 @@ You are needed to approve the rules once, approve each spec, change a spec, and 
 ## Install
 
 ```bash
-npx skills add JimmyBastos/flow-kit -g -a claude-code
+npx skills add JimmyBastos/flow-kit -g -a claude-code -a opencode
 ```
+
+OpenCode reads the same skills, so `/flow-spec`, `/flow-init` and `/flow-sync` work there too. The headless runs that `flow.js` starts use Claude Code.
 
 Then, in the repo that will hold `.flow/` (the hub; for one repo, the repo itself), run in Claude Code:
 
@@ -39,6 +41,7 @@ It writes `.flow/flow.json` and installs the AI validation gates in each repo: `
 - **Unattended:** enable the `flow-<product>` Orca automation. It only runs `flow.js tick`, because Orca runs automation agents with permissions skipped. A precheck skips the tick when nothing changed, so idle ticks start no model.
 - **Watching, to test or debug:** `/loop 5m run node ~/.claude/skills/flow-orchestrate/flow.js tick` in a Claude Code session in the hub.
 - **See the state:** `node ~/.claude/skills/flow-orchestrate/flow.js status`.
+- **Mirror to Linear:** add `"tracker": {"kind": "linear", "team": "<key>"}` to `.flow/flow.json`. Each tick then runs `/flow-sync`: one Linear project per feature, one issue per task, states from `status`. It is one way: Linear never changes `.flow/`. Run it alone with `flow.js sync`, or `/flow-sync` by hand.
 - **See the history:** `flow.js status --log [--task <feature>/<NN>]`. Every run logs its `session_id`; `claude --resume <session_id>` reopens it.
 
 ## Files
@@ -61,6 +64,7 @@ Status is never written. `flow.js` derives it from these files, the branches, th
 | No task starts on a stale plan | `launch` refuses when the plan's `spec_sha` differs from the spec |
 | One run per task; at most `parallel` runs | `launch` refuses otherwise |
 | Workers don't push or start other agents | `settings/worker.json`: a strict allowlist, fail-closed, with user settings and hooks not loaded; `flow.js` pushes |
+| The tracker is only a mirror | `flow.js sync` runs `flow-sync` with `settings/tracker.json`: reads, `flow.js status` and the Linear MCP only; no file writes |
 | The orchestrator only decides | `flow.js tick` runs it headless with `settings/orchestrator.json`: only `flow.js` and `gh pr` read and comment, fail-closed (`dontAsk`) |
 | Only a reviewed commit merges | `merge` requires a merge review for the current head, green CI and `--match-head-commit` |
 
