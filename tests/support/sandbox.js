@@ -1,5 +1,5 @@
 // A throwaway product for end-to-end tests: a hub repo with a planned feature, a bare remote,
-// and fake gh / orca / claude first on PATH. Everything else is real: git, flow.js, the state files.
+// and fake gh / orca / claude / opencode first on PATH. Everything else is real: git, flow.js, the state files.
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,13 +9,13 @@ import { fileURLToPath } from 'node:url';
 const FLOW = fileURLToPath(new URL('../../skills/flow-orchestrate/flow.js', import.meta.url));
 const FAKES = fileURLToPath(new URL('./fakes', import.meta.url));
 
-export function createSandbox() {
+export function createSandbox({ config = {} } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'flow-e2e-'));
   const bin = join(root, 'bin');
   const remote = join(root, 'remote.git');
   const hub = join(root, 'hub');
   mkdirSync(bin);
-  for (const tool of ['gh', 'orca', 'claude']) symlinkSync(join(FAKES, `${tool}.cjs`), join(bin, tool));
+  for (const tool of ['gh', 'orca', 'claude', 'opencode']) symlinkSync(join(FAKES, `${tool}.cjs`), join(bin, tool));
 
   const env = {
     ...process.env,
@@ -28,7 +28,7 @@ export function createSandbox() {
 
   git(root, 'init', '-q', '--bare', '-b', 'main', remote);
   git(root, 'init', '-q', '-b', 'main', hub);
-  write(join(hub, '.flow/flow.json'), JSON.stringify({ product: 'e2e', human: 'me', parallel: 2, repos: { app: { path: '.', github: 'org/app', default: 'main' } } }));
+  write(join(hub, '.flow/flow.json'), JSON.stringify({ product: 'e2e', human: 'me', parallel: 2, repos: { app: { path: '.', github: 'org/app', default: 'main' } }, ...config }));
   write(join(hub, '.flow/feat/spec.md'), '# Feature\n## Success criteria\n- SC-1: it works\n');
   git(hub, 'add', '-A');
   git(hub, 'commit', '-qm', 'docs(flow): spec feat');
@@ -47,7 +47,9 @@ export function createSandbox() {
     hub,
     git,
     flow,
-    /** The next outcomes the fake agents play, in order (see fakes/claude.cjs). */
+    /** The agent runs so far: { agent, model, skill, outcome }. */
+    calls: () => { try { return readFileSync(join(root, 'calls.jsonl'), 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)); } catch { return []; } },
+    /** The next outcomes the fake agents play, in order (see fakes/agent.cjs). */
     script: (...outcomes) => writeFileSync(join(root, 'script'), outcomes.join('\n')),
     task: id => JSON.parse(flow('status', '--json').stdout).features.flatMap(f => f.items).find(i => i.id === id),
     pullRequests: () => JSON.parse(readFileSync(join(root, 'prs.json'), 'utf8')),

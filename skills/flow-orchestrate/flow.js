@@ -7,9 +7,12 @@ import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { AGENTS, isUnavailable } from './agents.js';
 
 const SELF = fileURLToPath(import.meta.url);
 const KIT = dirname(SELF);
+export const DEFAULTS = JSON.parse(readFileSync(join(KIT, 'defaults.json'), 'utf8'));
+export const ROLES = ['orchestrator', 'plan', 'implement', 'fix_retry', 'review', 'sync'];
 
 // ---------- small helpers ----------
 export function sh(cmd, args, opts = {}) {
@@ -43,9 +46,9 @@ export function loadConfig(hub = process.env.FLOW_HUB || process.cwd()) {
   if (!existsSync(file)) throw new Error(`no .flow/flow.json in ${hub}; run /flow-init`);
   const cfg = JSON.parse(readFileSync(file, 'utf8'));
   cfg.hub = resolve(hub);
-  cfg.parallel ??= 2;
-  cfg.max_turns ??= 200;
-  cfg.models = { orchestrator: 'opus', plan: 'opus', implement: 'sonnet', fix_retry: 'opus', review: 'opus', sync: 'sonnet', ...cfg.models };
+  Object.assign(cfg, resolveAgent(cfg, process.env.FLOW_AGENT));
+  cfg.parallel ??= DEFAULTS.parallel;
+  cfg.max_turns ??= DEFAULTS.max_turns;
   cfg.repos ??= {};
   for (const r of Object.values(cfg.repos)) { r.path = resolve(cfg.hub, r.path || '.'); r.default ??= 'main'; r.allow ??= []; }
   cfg.hubRepo = Object.values(cfg.repos).find(r => r.path === cfg.hub) ?? { path: cfg.hub, default: cfg.hub_default || 'main', github: cfg.hub_github, allow: [] };
@@ -53,6 +56,29 @@ export function loadConfig(hub = process.env.FLOW_HUB || process.cwd()) {
   mkdirSync(join(cfg.state, 'runs'), { recursive: true });
   return cfg;
 }
+
+// One agent runs the whole flow. Only the review may run on another one ("review_agent"), so an independent
+// model family checks the work. Each role has an ordered model list in its agent: the first is used, and the next
+// only when a model is unavailable (limits, quota, outage). The legacy "models": { role: "model" } is Claude's.
+export function resolveAgent(file, envAgent) {
+  const agent = envAgent || file.agent || DEFAULTS.agent;
+  const review_agent = file.review_agent || agent;
+  for (const name of [agent, review_agent])
+    if (!AGENTS[name]) throw new Error(`unknown agent "${name}"; known: ${Object.keys(AGENTS).join(', ')}`);
+  let overrides = file.models || {};
+  if (Object.keys(overrides).some(k => ROLES.includes(k))) overrides = { claude: overrides };
+  const list = v => [v].flat().filter(Boolean);
+  const agentOf = role => (role === 'review' ? review_agent : agent);
+  const models = Object.fromEntries(ROLES.map(role => {
+    const name = agentOf(role);
+    return [role, list(overrides[name]?.[role] ?? DEFAULTS.models[name]?.[role])];
+  }));
+  const missing = ROLES.filter(r => !models[r].length);
+  if (missing.length) throw new Error(`no model for: ${missing.map(r => `${agentOf(r)}/${r}`).join(', ')}; set them in .flow/flow.json "models"`);
+  return { agent, review_agent, models };
+}
+
+export const agentFor = (cfg, role) => (role === 'review' ? cfg.review_agent || cfg.agent : cfg.agent);
 
 export function logEvent(cfg, ev) {
   appendFileSync(join(cfg.state, 'events.jsonl'), JSON.stringify({ at: new Date().toISOString(), ...ev }) + '\n');
@@ -242,16 +268,18 @@ export function checkLaunch(cfg, status, id, mode) {
   if (item.kind === 'task' && !item.plan_current) return `${id}: the plan does not match the current spec; re-plan first`;
   if (item.kind === 'task' && !item.deps_merged && !item.pr) return `${id}: dependencies not merged (${item.depends.join(', ')})`;
   if (mode === 'review' && !item.pr) return `${id}: no PR to review`;
-  const model = modelFor(cfg, item, mode);
-  if ((cfg.model_policy?.deny || []).includes(model)) return `model ${model} is excluded by model_policy`;
+  const role = roleFor(item, mode);
+  if (!modelsFor(cfg, role).length) return `every ${agentFor(cfg, role)} model for ${role} is excluded by model_policy`;
   return null;
 }
 
-export function modelFor(cfg, item, mode) {
-  if (mode === 'review') return cfg.models.review;
-  if (item.kind === 'plan') return cfg.models.plan;
-  return mode === 'fix' && (item.pr?.fix_rounds ?? 0) >= 2 ? cfg.models.fix_retry : cfg.models.implement;
+export function roleFor(item, mode) {
+  if (mode === 'review') return 'review';
+  if (item.kind === 'plan') return 'plan';
+  return mode === 'fix' && (item.pr?.fix_rounds ?? 0) >= 2 ? 'fix_retry' : 'implement';
 }
+
+export const modelsFor = (cfg, role) => cfg.models[role].filter(m => !(cfg.model_policy?.deny || []).includes(m));
 
 const ORCA = () => process.env.ORCA_CLI_COMMAND || 'orca';
 
@@ -302,8 +330,7 @@ export function parseResult(text) {
   return { status: 'failed', reason: 'the run did not end with a result object' };
 }
 
-// Headless runs ignore user-level settings (`--setting-sources project,local`): a user hook that rewrites commands
-// (seen in the spike) would slip past the deny rules. User skills then do not load, so the skill text is the prompt.
+// Headless runs do not load user-level skills, so the skill text is the prompt, on every agent.
 export function skillPrompt(skill, args) {
   const text = readFileSync(join(KIT, '..', skill, 'SKILL.md'), 'utf8').replace(/^---\n[\s\S]*?\n---\n/, '');
   return `${text.trim()}\n\n## Arguments\n${args}\n`;
@@ -317,20 +344,22 @@ export function buildSettings(role, { flowJs = SELF, allow = [] } = {}) {
   return settings;
 }
 
-function runAgent(cfg, { cwd, role, skill, args, model, dir, kind, allow = [], extra = [] }) {
-  const settingsFile = join(dir, `settings-${role}.json`);
-  writeFileSync(settingsFile, JSON.stringify(buildSettings(role, { allow }), null, 1));
-  const cliArgs = ['-p', skillPrompt(skill, args), '--model', model, '--output-format', 'json', '--max-turns', String(cfg.max_turns),
-    '--settings', settingsFile, '--setting-sources', 'project,local', '--add-dir', dir, ...extra];
-  const r = sh('claude', cliArgs, { cwd, env: { ...process.env, FLOW_HUB: cfg.hub } });
-  const file = join(dir, `${new Date().toISOString().replace(/[:.]/g, '-')}-${kind}.json`);
-  writeFileSync(file, r.out || r.err);
-  let meta = {};
-  try { meta = JSON.parse(r.out); } catch {}
-  const result = r.code === 0 && !meta.is_error ? parseResult(meta.result) : { status: 'error', reason: (meta.result || r.err || `exit ${r.code}`).slice(0, 500) };
-  // A run can report success while tool calls were denied (seen in the spike), so the denials travel with the result.
-  const denials = (meta.permission_denials || []).map(d => d.tool_input?.command || d.tool_name).slice(0, 10);
-  return { ...result, denials, session_id: meta.session_id, usage: meta.usage, transcript: file };
+// One headless run of a skill. `access` picks the permission template; `role` picks the model list. On an unavailable
+// model, the same run goes to the role's next model in the same agent. Any other failure is the run's result.
+export function runAgent(cfg, { cwd, access, role, skill, args, dir, kind, allow = [], mcpConfig }, agents = AGENTS) {
+  const name = agentFor(cfg, role);
+  const agent = agents[name];
+  const settings = buildSettings(access, { allow });
+  const tried = [];
+  for (const model of modelsFor(cfg, role)) {
+    const r = agent.run({ cwd, prompt: skillPrompt(skill, args), model, settings, dir, kind, maxTurns: cfg.max_turns,
+      env: { ...process.env, FLOW_HUB: cfg.hub }, dirs: [dir, cfg.hub], mcpConfig });
+    const meta = { agent: name, model, denials: (r.denials || []).slice(0, 10), session_id: r.sessionId, usage: r.usage, transcript: r.transcript };
+    if (isUnavailable(r)) { tried.push(`${model}: ${String(r.error).slice(0, 120)}`); continue; }
+    const result = r.isError ? { status: 'error', reason: String(r.error).slice(0, 500) } : parseResult(r.text);
+    return { ...result, ...meta, ...(tried.length ? { fallback_from: tried } : {}) };
+  }
+  return { status: 'error', reason: `no ${name} model available for ${role}: ${tried.join(' | ') || 'all excluded'}`.slice(0, 500), agent: name, denials: [] };
 }
 
 function ghPr(repo, branch) {
@@ -362,11 +391,11 @@ function cmdRun(cfg, id, mode) {
       const pr0 = ghPr(repo, branch);
       const item = { kind: isPlan ? 'plan' : 'task', pr: pr0 && readPrFacts({ ...pr0, comments: [] }) };
       if (mode === 'fix' && pr0) item.pr.fix_rounds = readPrFacts(json('gh', ['pr', 'view', String(pr0.number), '-R', repo.github, '--json', 'comments,headRefOid,number,state'])).fix_rounds;
-      const model = modelFor(cfg, item, mode);
+      const role = roleFor(item, mode);
       rmSync(bodyFile, { force: true });
       const args = isPlan ? `feature: ${feature}\npr body: ${bodyFile}` : `task file: ${join(cfg.hub, task.path)}\nmode: ${mode}\npr body: ${bodyFile}`;
-      result = runAgent(cfg, { cwd: wt, role: 'worker', skill: isPlan ? 'flow-plan' : 'flow-task', args, model, dir, kind: mode, allow: repo.allow });
-      ev(mode, { detail: `${model}: ${result.status}${result.reason ? ` (${result.reason})` : ''}${result.denials.length ? ` denied: ${result.denials.join(' | ')}` : ''}`, session_id: result.session_id, usage: result.usage });
+      result = runAgent(cfg, { cwd: wt, access: 'worker', role, skill: isPlan ? 'flow-plan' : 'flow-task', args, dir, kind: mode, allow: repo.allow });
+      ev(mode, { detail: `${result.agent}/${result.model}: ${result.status}${result.reason ? ` (${result.reason})` : ''}${result.denials.length ? ` denied: ${result.denials.join(' | ')}` : ''}`, session_id: result.session_id, usage: result.usage });
       if (result.decisions?.length) appendFileSync(join(dir, 'decisions.md'), result.decisions.map(d => `- ${d}`).join('\n') + '\n');
       const ahead = git(wt, 'rev-list', '--count', `origin/${repo.default}..HEAD`).out;
       if (Number(ahead) > 0 && git(wt, 'diff', '--name-only', '--diff-filter=U').out === '') {
@@ -389,8 +418,8 @@ function cmdRun(cfg, id, mode) {
     if (result.status === 'done' && ghPr(repo, branch)) {
       const number = ghPr(repo, branch).number;
       const args = `pr: ${number}\nrepo: ${repo.github}\nreview comment file: ${join(dir, 'review.md')}\npr body file: ${join(dir, 'pr-body-reviewed.md')}`;
-      const r = runAgent(cfg, { cwd: wt, role: 'worker', skill: 'flow-review', args, model: cfg.models.review, dir, kind: 'review', allow: repo.allow });
-      ev('review', { detail: `${cfg.models.review}: ${r.recommendation || r.status}`, session_id: r.session_id, usage: r.usage });
+      const r = runAgent(cfg, { cwd: wt, access: 'worker', role: 'review', skill: 'flow-review', args, dir, kind: 'review', allow: repo.allow });
+      ev('review', { detail: `${r.agent}/${r.model}: ${r.recommendation || r.status}`, session_id: r.session_id, usage: r.usage });
       if (r.status !== 'done') result = r;
     }
   } catch (e) {
@@ -416,8 +445,8 @@ function cmdTick(cfg, flags) {
   try {
     const dir = runDir(cfg, 'orchestrator');
     const args = `flow.js: node ${SELF}\nhub: ${cfg.hub}\nhuman: ${cfg.human || 'the repo owner'}\nrepos: ${JSON.stringify(Object.fromEntries(Object.entries(cfg.repos).map(([k, r]) => [k, r.github])))}`;
-    const r = runAgent(cfg, { cwd: cfg.hub, role: 'orchestrator', skill: 'flow-orchestrate', args, model: cfg.models.orchestrator, dir, kind: 'tick' });
-    logEvent(cfg, { id: 'orchestrator', action: 'tick', detail: r.summary || r.reason || r.status, session_id: r.session_id, usage: r.usage });
+    const r = runAgent(cfg, { cwd: cfg.hub, access: 'orchestrator', role: 'orchestrator', skill: 'flow-orchestrate', args, dir, kind: 'tick' });
+    logEvent(cfg, { id: 'orchestrator', action: 'tick', detail: `${r.agent}/${r.model}: ${r.summary || r.reason || r.status}`, session_id: r.session_id, usage: r.usage });
     console.log(r.summary || r.reason || r.status);
     if (r.status !== 'error') writeFileSync(seenFile, hash);
     if (cfg.tracker) cmdSync(cfg);
@@ -436,13 +465,13 @@ export function syncPlan(cfg) {
   const hub = cfg.hubRepo;
   const args = `flow.js: node ${SELF}\nhub: ${cfg.hub}\nhub github: ${hub.github || 'unknown'}\nhub default: ${hub.default}\n`
     + `tracker: ${JSON.stringify({ team: t.team, states: t.states || {} })}`;
-  return { args, extra: ['--mcp-config', mcp, '--strict-mcp-config'] };
+  return { args, mcpConfig: mcp };
 }
 
 function cmdSync(cfg) {
-  const { args, extra } = syncPlan(cfg);
-  const r = runAgent(cfg, { cwd: cfg.hub, role: 'tracker', skill: 'flow-sync', args, model: cfg.models.sync, dir: runDir(cfg, 'tracker'), kind: 'sync', extra });
-  logEvent(cfg, { id: 'tracker', action: 'sync', detail: r.summary || r.reason || r.status, session_id: r.session_id, usage: r.usage });
+  const { args, mcpConfig } = syncPlan(cfg);
+  const r = runAgent(cfg, { cwd: cfg.hub, access: 'tracker', role: 'sync', skill: 'flow-sync', args, dir: runDir(cfg, 'tracker'), kind: 'sync', mcpConfig });
+  logEvent(cfg, { id: 'tracker', action: 'sync', detail: `${r.agent}/${r.model}: ${r.summary || r.reason || r.status}`, session_id: r.session_id, usage: r.usage });
   console.log(`sync: ${r.summary || r.reason || r.status}`);
 }
 
