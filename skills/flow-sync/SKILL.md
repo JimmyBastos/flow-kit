@@ -7,6 +7,8 @@ description: Mirror the flow to Linear, one way - one project per feature, one i
 
 Linear mirrors `.flow/`; it is never the source. You read the hub and write only Linear. Arguments: the exact `flow.js` command (written `$FLOW` below), the hub, its GitHub `owner/name` and default branch, and the tracker (`team`, optional `states`). By hand, read them from `.flow/flow.json` and use `node .claude/skills/flow-orchestrate/flow.js` in the hub.
 
+On OpenCode the Linear MCP tools are not direct tools: call them inside the `execute` tool as `tools.linear.<name>(...)`. A tool list without `linear_*` tools still has them there, so that is not "no Linear access".
+
 ## Steps
 1. `$FLOW status --json`. For each feature in it, read `<hub>/.flow/<feature>/spec.md` (title: the first `# ` line; Goal) and every task file (title, Goal, Acceptance criteria): list them with Glob, read each with the Read tool, one file per call. Only these facts go to Linear.
 2. **Project per feature.** Use the project the spec links on its `Linear` line, if any. Otherwise use the team's project named exactly as the spec title, and create it when there is none (description: the Goal, then a last line `flow: <feature>`).

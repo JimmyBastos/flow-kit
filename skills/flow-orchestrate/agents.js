@@ -84,6 +84,10 @@ export function opencodeConfig(settings, { maxTurns = 200, dirs = [], mcp } = {}
   };
   allow.forEach(r => apply(r, 'allow'));
   deny.forEach(r => apply(r, 'deny'));
+  // A flat 'bash': 'deny' hides the shell tool entirely: OpenCode treats 'bash' as the shell alias and a literal deny
+  // on it wins over the pattern rules on 'shell'. Mirror the shell rules onto the alias instead. Without Bash rules
+  // the flat deny stays, which is equivalent because '*' already denies every command.
+  if (typeof permission.shell === 'object') permission.bash = permission.shell;
   const config = { $schema: 'https://opencode.ai/config.json', permission, agent: { build: { steps: maxTurns } } };
   if (mcp) config.mcp = mcp;
   return config;
