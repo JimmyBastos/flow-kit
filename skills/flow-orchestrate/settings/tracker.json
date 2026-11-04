@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "defaultMode": "dontAsk",
+    "allow": [
+      "Read", "Glob", "Grep",
+      "Bash(node __FLOW_JS__ status *)",
+      "mcp__linear"
+    ],
+    "deny": ["Edit", "Write", "NotebookEdit", "Bash(git push *)", "Read(**/.env)", "Read(**/.env.*)"]
+  }
+}
