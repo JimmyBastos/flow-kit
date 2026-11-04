@@ -5,7 +5,7 @@ description: Set up flow-kit for a product - write .flow/flow.json in the hub re
 
 # flow-init
 
-Interactive, with the user. Kit files: this skill's `templates/` folder and `../flow-orchestrate/`.
+Interactive, with the user. Kit files: this skill's `templates/` folder and `../flow-orchestrate/`. `<flow.js>` is the absolute path of `../flow-orchestrate/flow.js` in the hub's own install; flow-kit is never installed globally.
 
 ## 1. Detect (read only)
 - The hub: the repo that will hold `.flow/` (for one repo, the repo itself). The repos: local paths, default branch, GitHub `owner/name` (`gh repo view --json nameWithOwner`).
@@ -14,7 +14,7 @@ Interactive, with the user. Kit files: this skill's `templates/` folder and `../
 - Duplicate guard layers (`.claude/settings.json` deny lists that block `git rebase` or `git merge`, shell guard hooks). List them; the user decides whether to remove them.
 
 ## 2. Ask (one round)
-Repos and their tags, the `human` GitHub login for escalations, `parallel` (default 2), the models per role (defaults: orchestrator opus, plan opus, implement sonnet, fix_retry opus, review opus), and per repo the extra commands agents may run (`allow`, for example `["Bash(pnpm *)"]`).
+Repos and their tags, the `human` GitHub login for escalations, `parallel` (default 2), the models per role (defaults: orchestrator opus, plan opus, implement sonnet, fix_retry opus, review opus), per repo the extra commands agents may run (`allow`, for example `["Bash(pnpm *)"]`), and an optional tracker to mirror tasks to (`linear`: the team key, and the MCP config that has the Linear server, default `.mcp.json` in the hub).
 
 ## 3. Rules (blocking: the user approves)
 For each repo without `docs/rules/`: read representative code and draft `docs/rules/index.md`, `conventions.md`, one file per area, and `invariants.md` in the formats of `templates/docs/rules/`. Use 8–20 rules: short, observable, each with an id. Show them. **Do not continue until the user approves or edits them.**
@@ -30,8 +30,10 @@ For each repo without `docs/rules/`: read representative code and draft `docs/ru
   ```json
   {"product":"<name>","human":"<login>","parallel":2,
    "models":{"orchestrator":"opus","plan":"opus","implement":"sonnet","fix_retry":"opus","review":"opus"},
-   "repos":{"<tag>":{"path":"<relative path>","github":"<owner/name>","default":"main","env_file":"<path or null>","allow":["Bash(pnpm *)"]}}}
+   "repos":{"<tag>":{"path":"<relative path>","github":"<owner/name>","default":"main","env_file":"<path or null>","allow":["Bash(pnpm *)"]}},
+   "tracker":{"kind":"linear","team":"<team key>","mcp_config":".mcp.json"}}
   ```
+  Omit `tracker` when the user wants none. With one, `flow.js tick` runs `flow-sync` after each orchestrator pass.
 - Commit and push.
 
 ## 6. Tick
