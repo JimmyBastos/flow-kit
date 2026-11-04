@@ -212,7 +212,6 @@ function cmdStatus(cfg, flags) {
   if (flags.has('--changed-exit')) process.exit(changed ? 0 : 1);
   if (flags.has('--log')) return printLog(cfg, flags.get('--task'));
   if (flags.has('--json')) {
-    writeFileSync(seenFile, hash);
     return console.log(JSON.stringify({ changed, ...status }, null, 1));
   }
   console.log(`${status.product}: ${status.running}/${status.parallel} running`);
@@ -407,8 +406,11 @@ function cmdRun(cfg, id, mode) {
 function cmdTick(cfg, flags) {
   const lock = join(cfg.state, 'tick.pid');
   if (existsSync(lock) && alive(Number(readFileSync(lock, 'utf8')))) return console.log('a tick is already running');
+  // Only a finished tick marks a state as seen. Reading the status (by the sync agent, or a person) must not
+  // consume the change, or the orchestrator would never act on it.
   const seenFile = join(cfg.state, 'seen.sha');
-  const changed = statusHash(buildStatus(cfg)) !== (existsSync(seenFile) ? readFileSync(seenFile, 'utf8') : '');
+  const hash = statusHash(buildStatus(cfg));
+  const changed = hash !== (existsSync(seenFile) ? readFileSync(seenFile, 'utf8') : '');
   if (!changed && !flags.has('--force')) return console.log('nothing changed');
   writeFileSync(lock, String(process.pid));
   try {
@@ -417,6 +419,7 @@ function cmdTick(cfg, flags) {
     const r = runAgent(cfg, { cwd: cfg.hub, role: 'orchestrator', skill: 'flow-orchestrate', args, model: cfg.models.orchestrator, dir, kind: 'tick' });
     logEvent(cfg, { id: 'orchestrator', action: 'tick', detail: r.summary || r.reason || r.status, session_id: r.session_id, usage: r.usage });
     console.log(r.summary || r.reason || r.status);
+    if (r.status !== 'error') writeFileSync(seenFile, hash);
     if (cfg.tracker) cmdSync(cfg);
   } finally {
     rmSync(lock, { force: true });
