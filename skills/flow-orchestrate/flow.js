@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // flow.js: the steps of flow-kit that must be exact. The orchestrator AI decides; this reports facts,
-// enforces the caps and acts. Commands: status, launch, merge (and _run, started by launch in Orca).
+// enforces the caps and acts. Commands: status, launch, merge, sync (and _run, started by launch in Orca).
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, rmSync, copyFileSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -45,7 +45,7 @@ export function loadConfig(hub = process.env.FLOW_HUB || process.cwd()) {
   cfg.hub = resolve(hub);
   cfg.parallel ??= 2;
   cfg.max_turns ??= 200;
-  cfg.models = { orchestrator: 'opus', plan: 'opus', implement: 'sonnet', fix_retry: 'opus', review: 'opus', ...cfg.models };
+  cfg.models = { orchestrator: 'opus', plan: 'opus', implement: 'sonnet', fix_retry: 'opus', review: 'opus', sync: 'sonnet', ...cfg.models };
   cfg.repos ??= {};
   for (const r of Object.values(cfg.repos)) { r.path = resolve(cfg.hub, r.path || '.'); r.default ??= 'main'; r.allow ??= []; }
   cfg.hubRepo = Object.values(cfg.repos).find(r => r.path === cfg.hub) ?? { path: cfg.hub, default: cfg.hub_default || 'main', github: cfg.hub_github, allow: [] };
@@ -318,11 +318,11 @@ export function buildSettings(role, { flowJs = SELF, allow = [] } = {}) {
   return settings;
 }
 
-function runAgent(cfg, { cwd, role, skill, args, model, dir, kind, allow = [] }) {
+function runAgent(cfg, { cwd, role, skill, args, model, dir, kind, allow = [], extra = [] }) {
   const settingsFile = join(dir, `settings-${role}.json`);
   writeFileSync(settingsFile, JSON.stringify(buildSettings(role, { allow }), null, 1));
   const cliArgs = ['-p', skillPrompt(skill, args), '--model', model, '--output-format', 'json', '--max-turns', String(cfg.max_turns),
-    '--settings', settingsFile, '--setting-sources', 'project,local', '--add-dir', dir];
+    '--settings', settingsFile, '--setting-sources', 'project,local', '--add-dir', dir, ...extra];
   const r = sh('claude', cliArgs, { cwd, env: { ...process.env, FLOW_HUB: cfg.hub } });
   const file = join(dir, `${new Date().toISOString().replace(/[:.]/g, '-')}-${kind}.json`);
   writeFileSync(file, r.out || r.err);
@@ -417,9 +417,30 @@ function cmdTick(cfg, flags) {
     const r = runAgent(cfg, { cwd: cfg.hub, role: 'orchestrator', skill: 'flow-orchestrate', args, model: cfg.models.orchestrator, dir, kind: 'tick' });
     logEvent(cfg, { id: 'orchestrator', action: 'tick', detail: r.summary || r.reason || r.status, session_id: r.session_id, usage: r.usage });
     console.log(r.summary || r.reason || r.status);
+    if (cfg.tracker) cmdSync(cfg);
   } finally {
     rmSync(lock, { force: true });
   }
+}
+
+// ---------- sync: mirror the flow to the issue tracker, one way ----------
+// The tracker is a mirror, never a source: the sync agent reads the hub and writes only the tracker, through its MCP server.
+export function syncPlan(cfg) {
+  const t = cfg.tracker;
+  if (!t) throw new Error('no tracker in .flow/flow.json');
+  if (t.kind !== 'linear') throw new Error(`tracker kind ${t.kind} is not supported (only linear)`);
+  const mcp = resolve(cfg.hub, t.mcp_config || '.mcp.json');
+  const hub = cfg.hubRepo;
+  const args = `flow.js: node ${SELF}\nhub: ${cfg.hub}\nhub github: ${hub.github || 'unknown'}\nhub default: ${hub.default}\n`
+    + `tracker: ${JSON.stringify({ team: t.team, states: t.states || {} })}`;
+  return { args, extra: ['--mcp-config', mcp, '--strict-mcp-config'] };
+}
+
+function cmdSync(cfg) {
+  const { args, extra } = syncPlan(cfg);
+  const r = runAgent(cfg, { cwd: cfg.hub, role: 'tracker', skill: 'flow-sync', args, model: cfg.models.sync, dir: runDir(cfg, 'tracker'), kind: 'sync', extra });
+  logEvent(cfg, { id: 'tracker', action: 'sync', detail: r.summary || r.reason || r.status, session_id: r.session_id, usage: r.usage });
+  console.log(`sync: ${r.summary || r.reason || r.status}`);
 }
 
 // ---------- merge ----------
@@ -493,9 +514,10 @@ if (process.argv[1] === SELF) {
     else if (cmd === 'tick') cmdTick(cfg, flags);
     else if (cmd === 'launch' && pos[0]) cmdLaunch(cfg, pos[0], flags);
     else if (cmd === 'merge' && pos[1]) cmdMerge(cfg, pos[0], pos[1]);
+    else if (cmd === 'sync') cmdSync(cfg);
     else if (cmd === '_run' && pos[1]) cmdRun(cfg, pos[0], pos[1]);
     else {
-      console.error('usage: flow.js tick [--force] | status [--json|--changed-exit|--log [--task <id>]] | launch <feature>/<NN> [--fix|--review] | launch <feature> --plan | merge <repo|hub> <pr>');
+      console.error('usage: flow.js tick [--force] | status [--json|--changed-exit|--log [--task <id>]] | launch <feature>/<NN> [--fix|--review] | launch <feature> --plan | merge <repo|hub> <pr> | sync');
       process.exit(64);
     }
   } catch (e) {

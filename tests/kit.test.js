@@ -9,8 +9,8 @@ const read = skill => readFileSync(join(skillsDir, skill, 'SKILL.md'), 'utf8');
 const frontmatterField = (text, field) => text.match(new RegExp(`^${field}:\\s*(.+)$`, 'm'))?.[1].trim();
 
 describe('the kit', () => {
-  it('ships exactly the six flow skills', () => {
-    expect(skills).toEqual(['flow-init', 'flow-orchestrate', 'flow-plan', 'flow-review', 'flow-spec', 'flow-task']);
+  it('ships exactly the seven flow skills', () => {
+    expect(skills).toEqual(['flow-init', 'flow-orchestrate', 'flow-plan', 'flow-review', 'flow-spec', 'flow-sync', 'flow-task']);
   });
 
   describe.each(skills)('%s', skill => {
