@@ -5,7 +5,7 @@ description: Mirror the flow to Linear, one way - one project per feature, one i
 
 # flow-sync
 
-Linear mirrors `.flow/`; it is never the source. You read the hub and write only Linear. Arguments: the exact `flow.js` command (written `$FLOW` below), the hub, its GitHub `owner/name` and default branch, and the tracker (`team`, optional `states`). By hand, read them from `.flow/flow.json` and use `node ~/.claude/skills/flow-orchestrate/flow.js`.
+Linear mirrors `.flow/`; it is never the source. You read the hub and write only Linear. Arguments: the exact `flow.js` command (written `$FLOW` below), the hub, its GitHub `owner/name` and default branch, and the tracker (`team`, optional `states`). By hand, read them from `.flow/flow.json` and use `node .claude/skills/flow-orchestrate/flow.js` in the hub.
 
 ## Steps
 1. `$FLOW status --json`. For each feature in it, read `spec.md` (title: the first `# ` line; Goal) and every file in `tasks/` (title, Goal, Acceptance criteria). Only these facts go to Linear.

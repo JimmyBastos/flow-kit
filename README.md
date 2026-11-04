@@ -22,13 +22,15 @@ You are needed to approve the rules once, approve each spec, change a spec, and 
 
 ## Install
 
+Install in the repo that will hold `.flow/` (the hub; for one repo, the repo itself), and commit the skills with it. The other repos need no flow skills: `flow.js` takes each run's skill text from its own folder.
+
 ```bash
-npx skills add JimmyBastos/flow-kit -g -a claude-code -a opencode
+npx skills add JimmyBastos/flow-kit -a claude-code -a opencode -y
 ```
 
-OpenCode reads the same skills, so `/flow-spec`, `/flow-init` and `/flow-sync` work there too. The headless runs that `flow.js` starts use Claude Code.
+OpenCode reads the same skills, so `/flow-spec`, `/flow-init` and `/flow-sync` work there too. The headless runs that `flow.js` starts use Claude Code. Below, `<flow.js>` is `.claude/skills/flow-orchestrate/flow.js` in the hub.
 
-Then, in the repo that will hold `.flow/` (the hub; for one repo, the repo itself), run in Claude Code:
+Then run in Claude Code, in the hub:
 
 ```
 /flow-init
@@ -39,8 +41,8 @@ It writes `.flow/flow.json` and installs the AI validation gates in each repo: `
 ## Run
 
 - **Unattended:** enable the `flow-<product>` Orca automation. It only runs `flow.js tick`, because Orca runs automation agents with permissions skipped. A precheck skips the tick when nothing changed, so idle ticks start no model.
-- **Watching, to test or debug:** `/loop 5m run node ~/.claude/skills/flow-orchestrate/flow.js tick` in a Claude Code session in the hub.
-- **See the state:** `node ~/.claude/skills/flow-orchestrate/flow.js status`.
+- **Watching, to test or debug:** `/loop 5m run node <flow.js> tick` in a Claude Code session in the hub.
+- **See the state:** `node <flow.js> status`.
 - **Mirror to Linear:** add `"tracker": {"kind": "linear", "team": "<key>"}` to `.flow/flow.json`. Each tick then runs `/flow-sync`: one Linear project per feature, one issue per task, states from `status`. It is one way: Linear never changes `.flow/`. Run it alone with `flow.js sync`, or `/flow-sync` by hand.
 - **See the history:** `flow.js status --log [--task <feature>/<NN>]`. Every run logs its `session_id`; `claude --resume <session_id>` reopens it.
 

@@ -5,7 +5,7 @@ description: Set up flow-kit for a product - write .flow/flow.json in the hub re
 
 # flow-init
 
-Interactive, with the user. Kit files: this skill's `templates/` folder and `../flow-orchestrate/`.
+Interactive, with the user. Kit files: this skill's `templates/` folder and `../flow-orchestrate/`. `<flow.js>` is the absolute path of `../flow-orchestrate/flow.js` in the hub's own install; flow-kit is never installed globally.
 
 ## 1. Detect (read only)
 - The hub: the repo that will hold `.flow/` (for one repo, the repo itself). The repos: local paths, default branch, GitHub `owner/name` (`gh repo view --json nameWithOwner`).
