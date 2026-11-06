@@ -5,7 +5,8 @@
 // adapter.run({ cwd, prompt, model, settings, dir, kind, maxTurns, env, dirs, mcpConfig }) returns
 //   { code, text, isError, error, sessionId, usage, denials, transcript }
 // `settings` is the kit's canonical permission format: Claude Code settings ({ permissions: { allow, deny } }).
-// Each adapter translates it for its CLI. Runs must fail closed: anything not allowed is denied.
+// Each adapter translates it for its CLI. Runs bypass prompts (claude --dangerously-skip-permissions, opencode --auto);
+// only the deny rules still apply.
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -31,7 +32,7 @@ const claude = {
     writeFileSync(settingsFile, JSON.stringify(settings, null, 1));
     // User-level settings are not loaded: a user hook that rewrites commands would slip past the deny rules.
     const args = ['-p', prompt, '--model', model, '--output-format', 'json', '--max-turns', String(maxTurns),
-      '--settings', settingsFile, '--setting-sources', 'project,local', ...dirs.flatMap(d => ['--add-dir', d])];
+      '--settings', settingsFile, '--setting-sources', 'project,local', ...dirs.flatMap(d => ['--add-dir', d]), '--dangerously-skip-permissions'];
     if (mcpConfig) args.push('--mcp-config', mcpConfig, '--strict-mcp-config');
     const r = spawn('claude', args, { cwd, env });
     const transcript = stamp(dir, kind, 'json');
@@ -53,28 +54,21 @@ const claude = {
 const OC_KEYS = { Read: ['read'], Glob: ['glob', 'list'], Grep: ['grep'], Edit: ['edit'], Write: ['edit'], NotebookEdit: ['edit'],
   Agent: ['task'], Skill: ['skill'], Bash: ['shell'], WebFetch: ['webfetch'], WebSearch: ['websearch'] };
 const ocPattern = p => p.replace(/^\.\//, '');
-// OpenCode's built-in tools (v2). MCP tools have exact keys only (`linear_list_teams`; `linear_*` does not match), so a
-// role allowed an MCP server gets '*': 'allow' and an explicit deny on every built-in it is not allowed.
-const OC_BUILTINS = ['read', 'edit', 'write', 'patch', 'glob', 'grep', 'list', 'shell', 'bash', 'task', 'skill', 'webfetch',
-  'websearch', 'codesearch', 'lsp', 'question', 'doom_loop'];
-
 function setRule(perm, key, pattern, action) {
   if (pattern === undefined || pattern === '*') {
     if (typeof perm[key] === 'object') perm[key]['*'] = action; else perm[key] = action;
     return;
   }
-  if (typeof perm[key] !== 'object') perm[key] = { '*': perm[key] ?? 'deny' };
+  if (typeof perm[key] !== 'object') perm[key] = { '*': perm[key] ?? perm['*'] ?? 'allow' };
   delete perm[key][pattern];
   perm[key][pattern] = action; // OpenCode applies the last matching pattern, so later rules win.
 }
 
-export function opencodeConfig(settings, { maxTurns = 200, dirs = [], mcp } = {}) {
-  const { allow = [], deny = [] } = settings.permissions || {};
-  const usesMcp = allow.some(r => r.startsWith('mcp__'));
-  // Deny by default, never ask: a headless run has no one to answer. MCP tools need '*': 'allow' (see OC_BUILTINS).
-  const permission = { '*': usesMcp ? 'allow' : 'deny', ...Object.fromEntries(OC_BUILTINS.map(k => [k, 'deny'])),
-    todowrite: 'allow', todoread: 'allow', execute: usesMcp ? 'allow' : 'deny',
-    external_directory: Object.fromEntries([['*', 'deny'], ...dirs.map(d => [`${d}/**`, 'allow'])]) };
+// Yolo: everything is allowed except the template's deny rules (push, merge, .env, the spec, settings).
+// The run also passes --auto, so nothing is ever asked.
+export function opencodeConfig(settings, { maxTurns = 200, mcp } = {}) {
+  const { deny = [] } = settings.permissions || {};
+  const permission = { '*': 'allow', external_directory: 'allow' };
   const apply = (rule, action) => {
     const mcpTool = rule.match(/^mcp__([\w-]+)__([\w-]+)$/);
     if (mcpTool) return setRule(permission, `${mcpTool[1]}_${mcpTool[2]}`, undefined, action);
@@ -82,12 +76,9 @@ export function opencodeConfig(settings, { maxTurns = 200, dirs = [], mcp } = {}
     const m = rule.match(/^(\w+)(?:\((.*)\))?$/);
     for (const key of (m && OC_KEYS[m[1]]) || []) setRule(permission, key, m[2] === undefined ? undefined : ocPattern(m[2]), action);
   };
-  allow.forEach(r => apply(r, 'allow'));
   deny.forEach(r => apply(r, 'deny'));
-  // A flat 'bash': 'deny' hides the shell tool entirely: OpenCode treats 'bash' as the shell alias and a literal deny
-  // on it wins over the pattern rules on 'shell'. Mirror the shell rules onto the alias instead. Without Bash rules
-  // the flat deny stays, which is equivalent because '*' already denies every command.
-  if (typeof permission.shell === 'object') permission.bash = permission.shell;
+  // OpenCode treats 'bash' as the shell alias, so the shell rules are mirrored onto it.
+  if (permission.shell) permission.bash = permission.shell;
   const config = { $schema: 'https://opencode.ai/config.json', permission, agent: { build: { steps: maxTurns } } };
   if (mcp) config.mcp = mcp;
   return config;
@@ -123,12 +114,12 @@ export function parseOpencodeEvents(out) {
 
 const opencode = {
   name: 'opencode',
-  run({ cwd, prompt, model, settings, dir, kind, maxTurns, env, dirs = [], mcpConfig }) {
-    const config = opencodeConfig(settings, { maxTurns, dirs, mcp: opencodeMcp(mcpConfig) });
+  run({ cwd, prompt, model, settings, dir, kind, maxTurns, env, mcpConfig }) {
+    const config = opencodeConfig(settings, { maxTurns, mcp: opencodeMcp(mcpConfig) });
     writeFileSync(join(dir, `opencode-${kind}.json`), JSON.stringify(config, null, 1));
     // --standalone: the shared background service would ignore this run's permissions.
     // OPENCODE_CONFIG_CONTENT has the highest precedence, above the user's and the repo's opencode.json.
-    const r = spawn('opencode', ['run', '--standalone', '--format', 'json', '-m', model, prompt],
+    const r = spawn('opencode', ['run', '--standalone', '--auto', '--format', 'json', '-m', model, prompt],
       { cwd, env: { ...env, OPENCODE_CONFIG_CONTENT: JSON.stringify(config) } });
     const transcript = stamp(dir, kind, 'jsonl');
     writeFileSync(transcript, r.out || r.err);

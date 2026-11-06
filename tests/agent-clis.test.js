@@ -52,60 +52,46 @@ describe('choosing the agent', () => {
 });
 
 describe('OpenCode permissions', () => {
-  const worker = opencodeConfig(buildSettings('worker', { allow: ['Bash(pnpm *)'] }), { maxTurns: 50, dirs: ['/run', '/hub'] });
+  const worker = opencodeConfig(buildSettings('worker', { allow: ['Bash(pnpm *)'] }), { maxTurns: 50 });
   const p = worker.permission;
 
-  it('denies every tool the settings do not allow, and never asks', () => {
-    expect(p['*']).toBe('deny');
+  it('allows every tool and directory, and never asks', () => {
+    expect(p['*']).toBe('allow');
+    expect(p.external_directory).toBe('allow');
     expect(JSON.stringify(p)).not.toMatch(/"ask"/);
-    expect(p.webfetch).toBe('deny');
   });
 
-  it('allows the listed commands and keeps the denied ones denied, later rules winning', () => {
-    expect(p.shell['*']).toBe('deny');
-    expect(p.shell['git status *']).toBe('allow');
-    expect(p.shell['pnpm *']).toBe('allow');
+  it('keeps only the deny rules, on top of an allowed default', () => {
+    expect(p.shell['*']).toBe('allow');
     expect(p.shell['git push *']).toBe('deny');
-    const keys = Object.keys(p.shell);
-    expect(keys.indexOf('git push *')).toBeGreaterThan(keys.indexOf('git status *'));
+    expect(p.shell['gh pr merge *']).toBe('deny');
+    expect(p.shell['pnpm *']).toBeUndefined();
   });
 
-  it('mirrors the shell rules onto the bash alias, so no flat bash deny can hide the shell tool', () => {
+  it('mirrors the shell rules onto the bash alias', () => {
     expect(p.bash).toEqual(p.shell);
-    const tracker = opencodeConfig(buildSettings('tracker', { flowJs: '/kit/flow.js' })).permission;
-    expect(tracker.bash).toEqual(tracker.shell);
-    const noBashRules = opencodeConfig({ permissions: { allow: ['Read'] } }).permission;
-    expect(noBashRules.bash).toBe('deny');
-    expect(noBashRules.shell).toBe('deny');
+    const noBashRules = opencodeConfig({ permissions: { deny: ['Read(.env)'] } }).permission;
+    expect(noBashRules.bash).toBeUndefined();
+    expect(noBashRules.shell).toBeUndefined();
   });
 
-  it('keeps secrets unreadable and .flow and .claude read-only', () => {
+  it('keeps secrets unreadable, the spec, flow.json and .claude read-only, and lets plans and tasks be written', () => {
     expect(p.read).toMatchObject({ '*': 'allow', '.env': 'deny', '**/.env': 'deny' });
-    expect(p.edit).toMatchObject({ '*': 'allow', '.flow/**': 'deny', '**/.flow/**': 'deny', '**/.claude/**': 'deny' });
+    expect(p.edit).toMatchObject({ '*': 'allow', '**/.flow/**/spec.md': 'deny', '**/.flow/flow.json': 'deny', '**/.claude/**': 'deny' });
+    expect(p.edit['**/.flow/**']).toBeUndefined();
   });
 
-  it('reaches only the run and hub folders outside the worktree, and caps the steps', () => {
-    expect(p.external_directory).toEqual({ '*': 'deny', '/run/**': 'allow', '/hub/**': 'allow' });
+  it('caps the steps', () => {
     expect(worker.agent.build.steps).toBe(50);
   });
 
-  it('lets the orchestrator only read and run flow.js and gh reads', () => {
+  it('keeps the orchestrator and the tracker from editing files', () => {
     const o = opencodeConfig(buildSettings('orchestrator', { flowJs: '/kit/flow.js' })).permission;
-
-    expect(o.edit).toBe('deny');
-    expect(o.shell).toMatchObject({ '*': 'deny', 'node /kit/flow.js status *': 'allow', 'gh pr view *': 'allow' });
-  });
-
-  it('reaches the MCP tools only for a role allowed an MCP server, with every built-in it is not allowed denied', () => {
     const tracker = opencodeConfig(buildSettings('tracker', { flowJs: '/kit/flow.js' })).permission;
 
-    expect(tracker['*']).toBe('allow');
-    expect(tracker.execute).toBe('allow');
+    expect(o.edit).toBe('deny');
     expect(tracker.edit).toBe('deny');
-    expect(tracker.webfetch).toBe('deny');
-    expect(tracker.shell).toMatchObject({ '*': 'deny', 'node /kit/flow.js status *': 'allow' });
-    expect(p['*']).toBe('deny');
-    expect(p.execute).toBe('deny');
+    expect(tracker.shell).toMatchObject({ '*': 'allow', 'git push *': 'deny' });
   });
 
   it('translates Claude MCP servers to OpenCode ones', () => {

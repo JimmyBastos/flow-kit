@@ -93,6 +93,12 @@ describe('reviews', () => {
 
     expect(facts.fix_rounds).toBe(2);
   });
+
+  it('counts a review run again on the same commit as one fix round', () => {
+    const facts = readPrFacts(aPr({ comments: [aReview('fix', '1111111'), aReview('fix', '1111111'), aReview('fix', '2222222')] }));
+
+    expect(facts.fix_rounds).toBe(2);
+  });
 });
 
 describe('escalations', () => {
@@ -105,6 +111,12 @@ describe('escalations', () => {
 
   it('ignores comments from anyone but the human', () => {
     const facts = readPrFacts(aPr({ comments: [anEscalation(), aComment('bot', 'still thinking')] }), 'me');
+
+    expect(facts.escalation.open).toBe(true);
+  });
+
+  it('does not take an AI comment posted from the human login for a reply', () => {
+    const facts = readPrFacts(aPr({ comments: [anEscalation(), aComment('me', '**Fixes in `abc1234`**\n<sub>🤖 flow-task fix · claude · sonnet</sub>')] }), 'me');
 
     expect(facts.escalation.open).toBe(true);
   });
