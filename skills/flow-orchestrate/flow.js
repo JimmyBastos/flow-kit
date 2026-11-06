@@ -129,9 +129,9 @@ export function readFeatures(tree) {
 }
 
 // ---------- PRs ----------
-// Every AI comment ends with the same italic attribution line: `<sub><i>🤖 <skill> · <agent> · <model> · `<sha7>`</i></sub>`.
-export const AI_MARK = /<sub>(?:<i>)?🤖/;
-export const aiFooter = (skill, agent, model, sha) => `<sub><i>🤖 ${[skill, agent, model, sha && `\`${sha.slice(0, 7)}\``].filter(Boolean).join(' · ')}</i></sub>`;
+// Every AI comment ends with the same italic attribution line: `_👾 <skill> · <agent> · <model> · `<sha7>`_`.
+export const AI_MARK = /^_👾 /m;
+export const aiFooter = (skill, agent, model, sha) => `_👾 ${[skill, agent, model, sha && `\`${sha.slice(0, 7)}\``].filter(Boolean).join(' · ')}_`;
 const isAiComment = body => AI_MARK.test(body || '') || REVIEW_RE.test(body || '') || (body || '').includes(ESCALATION_MARK);
 export const REVIEW_RE = /<!--\s*flow-review sha=([0-9a-f]{7,40}) recommendation=(merge|fix|escalate)\s*-->/;
 export const ESCALATION_MARK = '<!-- flow-escalation -->';

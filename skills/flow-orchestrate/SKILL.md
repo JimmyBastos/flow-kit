@@ -38,10 +38,11 @@ Only for decisions that belong to the user: scope or a success criterion, a prod
 - **A:** <option> (recommended: <why>)
 - **B:** <option>
 <context in at most 3 lines, with links>
-<sub><i>🤖 flow-orchestrate · <run by> · `<PR head sha7>`</i></sub>
+
+_👾 flow-orchestrate · <run by> · `<PR head sha7>`_
 <!-- flow-escalation -->
 ```
-Every comment you post, answers included, ends with that `<sub><i>🤖 …</i></sub>` line, in that exact form: it marks the comment as the AI's.
+Every comment you post, answers included, ends with that `_👾 …_` line, in that exact form: it marks the comment as the AI's.
 Write for a person reading on a phone. Never escalate what you can decide from the spec, the plan or the code; decide it, and say so in a short PR comment.
 
 ## Rules

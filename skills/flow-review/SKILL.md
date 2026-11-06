@@ -49,7 +49,8 @@ The reader is the implementer, then a person on a phone. Above `<details>` they 
 1. Hard delete for `x`? (a) add it to the rule's exceptions (b) add `deleted_at`. Pick (a): a link has no life of its own.
 
 <details><summary>Evidence</summary> one line each. Criteria: ✅/❌ · SC · `file:line` · test. Findings: severity · rule · `file:line` · short quote · why. Not checked: what and why. </details>
-<sub><i>🤖 flow-review · <run by> · `<HEAD short>`</i></sub>
+
+_👾 flow-review · <run by> · `<HEAD short>`_
 <!-- flow-review sha=<HEAD> recommendation=<merge|fix|escalate> -->
 ```
 The heading is `## ✅ Merge`, `## 🔧 Fix` or `## ⚠️ Escalate`. `<run by>` is the argument as given, for example `claude · opus`.
