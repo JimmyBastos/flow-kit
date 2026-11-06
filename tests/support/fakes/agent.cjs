@@ -1,7 +1,7 @@
 // Shared behavior of the fake agents (claude.cjs, opencode.cjs). It plays the next outcome from $FAKE/script
 // (one per line) for whichever skill the prompt holds, and logs each call to $FAKE/calls.jsonl.
 //   task runs:   done | question       (commits a change and writes the PR body file)
-//   review runs: merge | fix | escalate (posts a review marker for HEAD)
+//   review runs: merge | fix | escalate (writes the summary with a review marker for HEAD; a fix also writes one line comment)
 //   any run:     limit                 (the model is unavailable; the outcome is not consumed by a later model)
 //   tick/sync:   error                 (the run fails)
 const fs = require('fs');
@@ -25,7 +25,9 @@ exports.play = (agent, model, prompt) => {
   if (skill === 'flow-review') {
     const sha = git('rev-parse', 'HEAD');
     const marker = `## Review\n<!-- flow-review sha=${sha} recommendation=${outcome} -->`;
-    execFileSync('gh', ['pr', 'comment', argument('pr'), '-R', argument('repo'), '--body', marker]);
+    fs.writeFileSync(argument('review summary file'), marker);
+    const inline = outcome === 'fix' ? [{ path: 'a.txt', line: 1, body: '**🔴 Block** · fake line comment' }] : [];
+    fs.writeFileSync(argument('review line comments file'), JSON.stringify(inline));
     return { result: { status: 'done', recommendation: outcome, sha } };
   }
   fs.writeFileSync(`change-${Date.now()}.txt`, 'a change');

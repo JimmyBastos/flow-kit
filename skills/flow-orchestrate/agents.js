@@ -12,7 +12,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 // A run that failed for one of these reasons may succeed on the role's next model. A task failure never matches.
-const UNAVAILABLE = /usage limit|rate.?limit|quota|insufficient (credits|balance|quota)|credit balance|overloaded|\b(429|529)\b|model unavailable|no-route|model .{0,40}not (found|available|supported)|not logged in|unauthori[sz]ed|authentication|binary not found/i;
+const UNAVAILABLE = /usage limit|rate.?limit|quota|insufficient (credits|balance|quota|account funds|funds)|free usage limit|credit balance|overloaded|\b(429|529)\b|model unavailable|no-route|model .{0,40}not (found|available|supported)|not logged in|unauthori[sz]ed|authentication|binary not found/i;
 export const isUnavailable = r => !!r.isError && UNAVAILABLE.test(`${r.error || ''} ${r.text || ''}`);
 
 function spawn(cmd, args, { cwd, env, input = '' }) {

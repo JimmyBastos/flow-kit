@@ -20,11 +20,12 @@ You run headless in a worktree of the hub repo on branch `flow/<feature>/plan`. 
    ## Risks
    ## Tasks         one line each: NN [repo] title (depends: NN)
    ```
-3. **Write `.flow/<feature>/tasks/NN-<slug>.md`** for each task, at most about 40 lines. A task is one PR and one session. Split at points where the build still passes: schema before use, provider before consumer. Add `depends` only where tasks touch the same code or contract, so the rest can run in parallel.
+3. **Write `.flow/<feature>/tasks/NN-<slug>.md`** for each task, at most about 40 lines. A task is one PR and one session. Split at points where the build still passes: schema before use, provider before consumer. Add `depends` only where tasks touch the same code or contract, so the rest can run in parallel. **complexity** picks the model: `low` follows an existing pattern in one module, with no migration, contract, security or tenancy logic; `high` changes a schema, a migration, tenancy, a cross-repo contract or concurrency; otherwise `medium`.
    ```
    ---
    repo: <tag>
    depends: [NN, ...]
+   complexity: low | medium | high
    ---
    # NN <imperative title>
    ## Goal                 one sentence, product language
@@ -34,6 +35,8 @@ You run headless in a worktree of the hub repo on branch `flow/<feature>/plan`. 
    ```
 4. **Self-check:** every `SC-n` is cited by a task; nothing from Not included is built; no scope beyond the spec; contracts match in both plans; no file over its size (split instead).
 5. Commit `docs(flow): plan <feature>`. Write 3–5 lines to the PR body file: what the plan covers and how many tasks. Do not push; `flow.js` does.
+
+Ask only when the answer changes the plan and nothing in the spec, the ADRs, the code or the rules answers it. Otherwise take the most reasonable option and record it in the plan.
 6. **Commands:** one command per Bash call, run from the current directory: no pipes, `&&`, `;` or `git -C`. Read files with the Read tool; list them with `git ls-files`, search with `git grep`. A denied command is expected, not a blocker: use one of these allowed ways and continue.
 
 ## Finish

@@ -29,7 +29,7 @@ For each repo without `docs/rules/`: read representative code and draft `docs/ru
 - Write `.flow/flow.json`:
   ```json
   {"product":"<name>","human":"<login>","parallel":2,
-   "agent":"claude","review_agent":"opencode","models":{"opencode":{"review":["opencode-go/gemini-4-argon"]}},
+   "agent":"claude","review_agent":"opencode","models":{"opencode":{"reviewer":["opencode-go/gemini-4-argon"]}},
    "repos":{"<tag>":{"path":"<relative path>","github":"<owner/name>","default":"main","env_file":"<path or null>","allow":["Bash(pnpm *)"]}},
    "tracker":{"kind":"linear","team":"<team key>","mcp_config":".mcp.json"}}
   ```

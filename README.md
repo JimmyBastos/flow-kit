@@ -11,7 +11,7 @@ It runs on [Orca](https://github.com/stablyai/orca), with Claude Code or OpenCod
 1. **You:** `/flow-spec <feature>`. The AI asks for your existing material, asks its questions in one round with a recommendation for each, and writes `spec.md`: what and why. You approve it.
 2. **Orchestrator (`flow.js tick`, every 5 minutes):** sees the approved spec and starts `/flow-plan`. That writes one short plan per repo and one short file per task, as a pull request. The pull request is reviewed against the spec and merged.
 3. **Orchestrator:** starts every task whose dependencies are merged, in parallel, each in its own Orca worktree. Each run is headless: implement → push → pull request → review.
-4. **Reviewer:** runs the repo's own validation gates and checks the acceptance criteria. It posts one short comment recommending merge, fix or escalate, tied to the commit it reviewed.
+4. **Reviewer:** runs the repo's own validation gates and checks the acceptance criteria. It posts one GitHub review on the commit it reviewed: a summary recommending merge, fix or escalate, plus a comment on each issue's line.
 5. **Orchestrator:**
    - on merge, it merges;
    - on fix, it starts a fix run (Sonnet, then Opus);
@@ -63,11 +63,11 @@ The whole flow runs on one agent CLI: `claude` (Claude Code, the default) or `op
 
 ```json
 { "agent": "opencode", "review_agent": "claude",
-  "models": { "opencode": { "implement": ["opencode-go/glm-5.3", "opencode-go/kimi-k2.7-code"] } } }
+  "models": { "opencode": { "builder": ["opencode-go/glm-5.3", "opencode-go/kimi-k2.7-code"] } } }
 ```
 
 - **`review_agent`** (optional) runs only the review on the other agent, so a different model family checks the work.
-- **`models`** overrides the defaults in `skills/flow-orchestrate/defaults.json`, per agent and role (`orchestrator`, `plan`, `implement`, `fix_retry`, `review`, `sync`). A role takes one model or a list.
+- **`models`** overrides the defaults in `skills/flow-orchestrate/defaults.json`, per agent and role (`orchestrator`, `planner`, `builder`, `reviewer`, `clerk`). A role takes one model or a list, or a list per task complexity (`low`, `medium`, `high`).
 - **A list is a fallback, in the same agent.** The next model runs only when one is unavailable (usage limit, quota, outage, unknown model). A run that fails for any other reason is never retried on another model.
 - **Same rules on every agent.** The permission templates in `settings/` are written once, in Claude Code's format. Runs never ask: Claude Code runs with `--dangerously-skip-permissions` and OpenCode with `--auto`, so only the deny rules apply (no push or merge, no `.env`, no edits to the spec, `flow.json` or `.claude`). OpenCode runs `--standalone`, with the rules in `OPENCODE_CONFIG_CONTENT`, above the user's and the repo's own config.
 - **MCP on OpenCode:** OpenCode matches MCP tools by exact name only, so a role allowed an MCP server (the tracker) runs with every tool allowed except the built-ins it is not allowed, which are denied by name.

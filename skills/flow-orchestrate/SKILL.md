@@ -43,7 +43,7 @@ _👾 flow-orchestrate · <run by> · `<PR head sha7>`_
 <!-- flow-escalation -->
 ```
 Every comment you post, answers included, ends with that `_👾 …_` line, in that exact form: it marks the comment as the AI's.
-Write for a person reading on a phone. Never escalate what you can decide from the spec, the plan or the code; decide it, and say so in a short PR comment.
+Write for a person reading on a phone. Never escalate what you can decide from the spec, the plan or the code; decide it, and say so in a short PR comment. Do not escalate a question that would not change the next action.
 
 ## Rules
 - Never two runs on one task. Never merge without a `merge` review on the current head; `flow.js merge` refuses anyway.

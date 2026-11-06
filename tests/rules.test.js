@@ -34,11 +34,11 @@ describe('launch', () => {
   it('refuses a role whose every model the model policy excludes', () => {
     const config = aConfig({ model_policy: { deny: ['sonnet'] } });
 
-    expect(checkLaunch(config, statusWith(), 'feat/01', 'implement')).toMatch(/every claude model for implement is excluded/);
+    expect(checkLaunch(config, statusWith(), 'feat/01', 'implement')).toMatch(/every claude model for builder is excluded/);
   });
 
   it('allows a role while one of its models is still allowed', () => {
-    const config = aConfig({ model_policy: { deny: ['sonnet'] }, models: { ...aConfig().models, implement: ['sonnet', 'opus'] } });
+    const config = aConfig({ model_policy: { deny: ['sonnet'] }, models: { ...aConfig().models, builder: ['sonnet', 'opus'] } });
 
     expect(checkLaunch(config, statusWith(), 'feat/01', 'implement')).toBeNull();
   });
@@ -51,18 +51,15 @@ describe('launch', () => {
 describe('role choice', () => {
   const task = fixRounds => ({ kind: 'task', pr: { fix_rounds: fixRounds } });
 
-  it('implements and fixes the first round with the implement role', () => {
-    expect(roleFor(task(0), 'implement')).toBe('implement');
-    expect(roleFor(task(1), 'fix')).toBe('implement');
+  it('implements and fixes with the builder role, at any fix round', () => {
+    expect(roleFor(task(0), 'implement')).toBe('builder');
+    expect(roleFor(task(1), 'fix')).toBe('builder');
+    expect(roleFor(task(2), 'fix')).toBe('builder');
   });
 
-  it('uses the retry role from the second fix round', () => {
-    expect(roleFor(task(2), 'fix')).toBe('fix_retry');
-  });
-
-  it('uses the plan and review roles for their runs', () => {
-    expect(roleFor({ kind: 'plan' }, 'implement')).toBe('plan');
-    expect(roleFor(task(0), 'review')).toBe('review');
+  it('uses the planner and reviewer roles for their runs', () => {
+    expect(roleFor({ kind: 'plan' }, 'implement')).toBe('planner');
+    expect(roleFor(task(0), 'review')).toBe('reviewer');
   });
 });
 
