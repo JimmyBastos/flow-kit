@@ -8,6 +8,7 @@ import { homedir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AGENTS, isUnavailable } from './agents.js';
+import { trackerFor, validIssues, withIssue } from './trackers.js';
 
 const SELF = fileURLToPath(import.meta.url);
 const KIT = dirname(SELF);
@@ -128,18 +129,26 @@ export function readFeatures(tree) {
 }
 
 // ---------- PRs ----------
+// Every AI comment ends with the same italic attribution line: `_👾 <skill> · <agent> · <model> · `<sha7>`_`.
+export const AI_MARK = /^_👾 /m;
+export const aiFooter = (skill, agent, model, sha) => `_👾 ${[skill, agent, model, sha && `\`${sha.slice(0, 7)}\``].filter(Boolean).join(' · ')}_`;
+const isAiComment = body => AI_MARK.test(body || '') || REVIEW_RE.test(body || '') || (body || '').includes(ESCALATION_MARK);
 export const REVIEW_RE = /<!--\s*flow-review sha=([0-9a-f]{7,40}) recommendation=(merge|fix|escalate)\s*-->/;
 export const ESCALATION_MARK = '<!-- flow-escalation -->';
 
 export function readPrFacts(pr, human) {
   const comments = pr.comments || [];
-  let review = null, fixRounds = 0, escAt = -1;
+  // A fix round is a fix review on a new head: a review run again on the same commit is not another round.
+  let review = null, escAt = -1;
+  const fixShas = new Set();
   comments.forEach((c, i) => {
     const m = (c.body || '').match(REVIEW_RE);
-    if (m) { review = { sha: m[1], recommendation: m[2] }; if (m[2] === 'fix') fixRounds++; }
+    if (m) { review = { sha: m[1], recommendation: m[2] }; if (m[2] === 'fix') fixShas.add(m[1].slice(0, 7)); }
     if ((c.body || '').includes(ESCALATION_MARK)) escAt = i;
   });
-  const replied = escAt >= 0 && comments.slice(escAt + 1).some(c => !human || c.author?.login === human);
+  const fixRounds = fixShas.size;
+  // AI comments are posted from the human's gh login too, so only an unattributed comment is the human's reply.
+  const replied = escAt >= 0 && comments.slice(escAt + 1).some(c => !isAiComment(c.body) && (!human || c.author?.login === human));
   const head = pr.headRefOid;
   return {
     number: pr.number, state: pr.state, draft: pr.isDraft, mergeable: pr.mergeable, head, url: pr.url,
@@ -352,7 +361,7 @@ export function runAgent(cfg, { cwd, access, role, skill, args, dir, kind, allow
   const settings = buildSettings(access, { allow });
   const tried = [];
   for (const model of modelsFor(cfg, role)) {
-    const r = agent.run({ cwd, prompt: skillPrompt(skill, args), model, settings, dir, kind, maxTurns: cfg.max_turns,
+    const r = agent.run({ cwd, prompt: skillPrompt(skill, `${args}\nrun by: ${name} · ${model}`), model, settings, dir, kind, maxTurns: cfg.max_turns,
       env: { ...process.env, FLOW_HUB: cfg.hub }, dirs: [dir, cfg.hub], mcpConfig });
     const meta = { agent: name, model, denials: (r.denials || []).slice(0, 10), session_id: r.sessionId, usage: r.usage, transcript: r.transcript };
     if (isUnavailable(r)) { tried.push(`${model}: ${String(r.error).slice(0, 120)}`); continue; }
@@ -393,7 +402,13 @@ function cmdRun(cfg, id, mode) {
       if (mode === 'fix' && pr0) item.pr.fix_rounds = readPrFacts(json('gh', ['pr', 'view', String(pr0.number), '-R', repo.github, '--json', 'comments,headRefOid,number,state'])).fix_rounds;
       const role = roleFor(item, mode);
       rmSync(bodyFile, { force: true });
-      const args = isPlan ? `feature: ${feature}\npr body: ${bodyFile}` : `task file: ${join(cfg.hub, task.path)}\nmode: ${mode}\npr body: ${bodyFile}`;
+      // The hub checkout can lag origin (a plan PR just merged), so a task reads its feature folder as merged on origin.
+      const hubCopy = join(dir, 'hub');
+      if (!isPlan) for (const f of tree.files.filter(f => f.startsWith(`.flow/${feature}/`))) {
+        mkdirSync(dirname(join(hubCopy, f)), { recursive: true });
+        writeFileSync(join(hubCopy, f), tree.show(f));
+      }
+      const args = isPlan ? `feature: ${feature}\npr body: ${bodyFile}` : `task file: ${join(hubCopy, task.path)}\nhub path of the task: ${task.path}\nmode: ${mode}\npr body: ${bodyFile}`;
       result = runAgent(cfg, { cwd: wt, access: 'worker', role, skill: isPlan ? 'flow-plan' : 'flow-task', args, dir, kind: mode, allow: repo.allow });
       ev(mode, { detail: `${result.agent}/${result.model}: ${result.status}${result.reason ? ` (${result.reason})` : ''}${result.denials.length ? ` denied: ${result.denials.join(' | ')}` : ''}`, session_id: result.session_id, usage: result.usage });
       if (result.decisions?.length) appendFileSync(join(dir, 'decisions.md'), result.decisions.map(d => `- ${d}`).join('\n') + '\n');
@@ -404,15 +419,20 @@ function cmdRun(cfg, id, mode) {
         const body = existsSync(bodyFile) ? bodyFile : null;
         let pr = ghPr(repo, branch);
         if (!pr) {
-          const title = isPlan ? `docs(flow): plan ${feature}` : `${task.title}`;
+          // Repos title PRs as conventional commits: the branch's first conventional commit subject is the title.
+          const conventional = git(wt, 'log', '--no-merges', '--reverse', '--format=%s', `origin/${repo.default}..HEAD`).out
+            .split('\n').find(s => /^[a-z]+(\([\w./-]+\))?!?: \S/.test(s));
+          const title = isPlan ? `docs(flow): plan ${feature}`
+            : conventional || `feat: ${task.title.charAt(0).toLowerCase()}${task.title.slice(1)}`;
           const args = ['pr', 'create', '-R', repo.github, '--draft', '--head', branch, '--base', repo.default, '--title', title];
           if (body) args.push('--body-file', body); else args.push('--body', isPlan ? `Plan for \`.flow/${feature}/spec.md\`.` : `Task: ${task.path}`);
           must('gh', args, { cwd: wt });
           pr = ghPr(repo, branch);
           ev('pr', { detail: `opened #${pr?.number}` });
         } else if (body) must('gh', ['pr', 'edit', String(pr.number), '-R', repo.github, '--body-file', body], { cwd: wt });
+        if (!isPlan && pr) linkIssue(cfg, repo, pr.number, id, dir);
         if (result.status === 'question' && pr)
-          must('gh', ['pr', 'comment', String(pr.number), '-R', repo.github, '--body', `**Question from the implementer:** ${result.question}\n\n${(result.options || []).map(o => `- ${o}`).join('\n')}\n\nRecommended: ${result.recommended || 'none'}`]);
+          must('gh', ['pr', 'comment', String(pr.number), '-R', repo.github, '--body', `**Question from the implementer:** ${result.question}\n\n${(result.options || []).map(o => `- ${o}`).join('\n')}\n\nRecommended: ${result.recommended || 'none'}\n\n${aiFooter('flow-task', result.agent, result.model, git(wt, 'rev-parse', 'HEAD').out)}`]);
       }
     }
     if (result.status === 'done' && ghPr(repo, branch)) {
@@ -462,8 +482,7 @@ function cmdTick(cfg, flags) {
 // The tracker is a mirror, never a source: the sync agent reads the hub and writes only the tracker, through its MCP server.
 export function syncPlan(cfg) {
   const t = cfg.tracker;
-  if (!t) throw new Error('no tracker in .flow/flow.json');
-  if (t.kind !== 'linear') throw new Error(`tracker kind ${t.kind} is not supported (only linear)`);
+  trackerFor(cfg);
   const mcp = resolve(cfg.hub, t.mcp_config || '.mcp.json');
   const hub = cfg.hubRepo;
   const args = `flow.js: node ${SELF}\nhub: ${cfg.hub}\nhub github: ${hub.github || 'unknown'}\nhub default: ${hub.default}\n`
@@ -476,6 +495,33 @@ function cmdSync(cfg) {
   const r = runAgent(cfg, { cwd: cfg.hub, access: 'tracker', role: 'sync', skill: 'flow-sync', args, dir: runDir(cfg, 'tracker'), kind: 'sync', mcpConfig });
   logEvent(cfg, { id: 'tracker', action: 'sync', detail: `${r.agent}/${r.model}: ${r.summary || r.reason || r.status}`, session_id: r.session_id, usage: r.usage });
   console.log(`sync: ${r.summary || r.reason || r.status}`);
+  if (r.status !== 'done') return;
+  const issues = { ...readIssues(cfg), ...Object.fromEntries(validIssues(r.issues, trackerFor(cfg)).map(i => [i.task, i])) };
+  writeFileSync(join(cfg.state, 'issues.json'), JSON.stringify(issues, null, 1));
+  const features = readFeatures(readHubTree(cfg));
+  for (const id of Object.keys(issues)) {
+    const [feature, nn] = id.split('/');
+    const task = features[feature]?.tasks[nn];
+    const repo = task && cfg.repos[task.repo];
+    const pr = repo && ghPr(repo, `flow/${id}`);
+    if (pr?.state === 'OPEN') linkIssue(cfg, repo, pr.number, id, runDir(cfg, 'tracker'));
+  }
+}
+
+// ---------- the task's issue on its PR ----------
+// The sync run returns each task's issue; flow.js names it on the task PR, the same way for every tracker.
+const readIssues = cfg => { try { return JSON.parse(readFileSync(join(cfg.state, 'issues.json'), 'utf8')); } catch { return {}; } };
+
+function linkIssue(cfg, repo, number, id, dir) {
+  const issue = cfg.tracker && readIssues(cfg)[id];
+  if (!issue) return;
+  const pr = json('gh', ['pr', 'view', String(number), '-R', repo.github, '--json', 'title,body']);
+  const next = withIssue(pr, issue, trackerFor(cfg));
+  if (!next.changed) return;
+  const file = join(dir, 'pr-body-issue.md');
+  writeFileSync(file, next.body);
+  must('gh', ['pr', 'edit', String(number), '-R', repo.github, '--title', next.title, '--body-file', file]);
+  logEvent(cfg, { id, action: 'issue', detail: `${issue.key} on #${number}` });
 }
 
 // ---------- merge ----------

@@ -55,8 +55,10 @@
       "Read(./.env.*)",
       "Read(**/.env)",
       "Read(**/.env.*)",
-      "Edit(./.flow/**)",
-      "Edit(**/.flow/**)",
+      "Edit(./.flow/**/spec.md)",
+      "Edit(**/.flow/**/spec.md)",
+      "Edit(./.flow/flow.json)",
+      "Edit(**/.flow/flow.json)",
       "Edit(./.claude/**)",
       "Edit(**/.claude/**)"
     ]

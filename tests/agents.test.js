@@ -42,7 +42,8 @@ describe('agent settings', () => {
 
     expect(permissions.defaultMode).toBe('dontAsk');
     expect(permissions.allow).toContain('Bash(pnpm *)');
-    expect(permissions.deny).toEqual(expect.arrayContaining(['Bash(git push *)', 'Bash(claude *)', 'Bash(orca *)', 'Edit(**/.flow/**)']));
+    expect(permissions.deny).toEqual(expect.arrayContaining(['Bash(git push *)', 'Bash(claude *)', 'Bash(orca *)', 'Edit(**/.flow/**/spec.md)']));
+    expect(permissions.deny).not.toContain('Edit(**/.flow/**)');
   });
 });
 

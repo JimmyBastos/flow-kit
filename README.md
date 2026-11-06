@@ -43,7 +43,7 @@ It writes `.flow/flow.json` and installs the AI validation gates in each repo: `
 - **Unattended:** enable the `flow-<product>` Orca automation. It only runs `flow.js tick`, because Orca runs automation agents with permissions skipped. A precheck skips the tick when nothing changed, so idle ticks start no model.
 - **Watching, to test or debug:** `/loop 5m run node <flow.js> tick` in a Claude Code session in the hub, or run `node <flow.js> tick` by hand.
 - **See the state:** `node <flow.js> status`.
-- **Mirror to Linear:** add `"tracker": {"kind": "linear", "team": "<key>"}` to `.flow/flow.json`. Each tick then runs `/flow-sync`: one Linear project per feature, one issue per task, states from `status`. It is one way: Linear never changes `.flow/`. Run it alone with `flow.js sync`, or `/flow-sync` by hand.
+- **Mirror to Linear:** add `"tracker": {"kind": "linear", "team": "<key>"}` to `.flow/flow.json`. Each tick then runs `/flow-sync`: one Linear project per feature, one issue per task, states from `status`. It is one way: Linear never changes `.flow/`. The sync returns each task's issue, and `flow.js` names it on the task PR: ` (DOS-12)` at the end of the title and a `Linear:` link above `Task:`. Trackers are adapters in `trackers.js`. Run it alone with `flow.js sync`, or `/flow-sync` by hand.
 - **See the history:** `flow.js status --log [--task <feature>/<NN>]`. Every run logs its agent, model and `session_id`; `claude --resume <session_id>` or `opencode --session <session_id>` reopens it.
 
 ## Files
@@ -69,7 +69,7 @@ The whole flow runs on one agent CLI: `claude` (Claude Code, the default) or `op
 - **`review_agent`** (optional) runs only the review on the other agent, so a different model family checks the work.
 - **`models`** overrides the defaults in `skills/flow-orchestrate/defaults.json`, per agent and role (`orchestrator`, `plan`, `implement`, `fix_retry`, `review`, `sync`). A role takes one model or a list.
 - **A list is a fallback, in the same agent.** The next model runs only when one is unavailable (usage limit, quota, outage, unknown model). A run that fails for any other reason is never retried on another model.
-- **Same rules on every agent.** The permission templates in `settings/` are written once, in Claude Code's format. `agents.js` translates them for each CLI and fails closed: anything not allowed is denied. OpenCode runs `--standalone`, with the rules in `OPENCODE_CONFIG_CONTENT`, above the user's and the repo's own config.
+- **Same rules on every agent.** The permission templates in `settings/` are written once, in Claude Code's format. Runs never ask: Claude Code runs with `--dangerously-skip-permissions` and OpenCode with `--auto`, so only the deny rules apply (no push or merge, no `.env`, no edits to the spec, `flow.json` or `.claude`). OpenCode runs `--standalone`, with the rules in `OPENCODE_CONFIG_CONTENT`, above the user's and the repo's own config.
 - **MCP on OpenCode:** OpenCode matches MCP tools by exact name only, so a role allowed an MCP server (the tracker) runs with every tool allowed except the built-ins it is not allowed, which are denied by name.
 - **Adding an agent** is one adapter in `skills/flow-orchestrate/agents.js` and its models in `defaults.json`.
 
