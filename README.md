@@ -43,7 +43,7 @@ It writes `.flow/flow.json` and installs the AI validation gates in each repo: `
 - **Unattended:** enable the `flow-<product>` Orca automation. It only runs `flow.js tick`, because Orca runs automation agents with permissions skipped. A precheck skips the tick when nothing changed, so idle ticks start no model.
 - **Watching, to test or debug:** `/loop 5m run node <flow.js> tick` in a Claude Code session in the hub, or run `node <flow.js> tick` by hand.
 - **See the state:** `node <flow.js> status`.
-- **Mirror to Linear:** add `"tracker": {"kind": "linear", "team": "<key>"}` to `.flow/flow.json`. Each tick then runs `/flow-sync`: one Linear project per feature, one issue per task, states from `status`. It is one way: Linear never changes `.flow/`. Run it alone with `flow.js sync`, or `/flow-sync` by hand.
+- **Mirror to Linear:** add `"tracker": {"kind": "linear", "team": "<key>"}` to `.flow/flow.json`. Each tick then runs `/flow-sync`: one Linear project per feature, one issue per task, states from `status`. It is one way: Linear never changes `.flow/`. The sync returns each task's issue, and `flow.js` names it on the task PR: ` (DOS-12)` at the end of the title and a `Linear:` link above `Task:`. Trackers are adapters in `trackers.js`. Run it alone with `flow.js sync`, or `/flow-sync` by hand.
 - **See the history:** `flow.js status --log [--task <feature>/<NN>]`. Every run logs its agent, model and `session_id`; `claude --resume <session_id>` or `opencode --session <session_id>` reopens it.
 
 ## Files

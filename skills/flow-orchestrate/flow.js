@@ -8,6 +8,7 @@ import { homedir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AGENTS, isUnavailable } from './agents.js';
+import { trackerFor, validIssues, withIssue } from './trackers.js';
 
 const SELF = fileURLToPath(import.meta.url);
 const KIT = dirname(SELF);
@@ -429,6 +430,7 @@ function cmdRun(cfg, id, mode) {
           pr = ghPr(repo, branch);
           ev('pr', { detail: `opened #${pr?.number}` });
         } else if (body) must('gh', ['pr', 'edit', String(pr.number), '-R', repo.github, '--body-file', body], { cwd: wt });
+        if (!isPlan && pr) linkIssue(cfg, repo, pr.number, id, dir);
         if (result.status === 'question' && pr)
           must('gh', ['pr', 'comment', String(pr.number), '-R', repo.github, '--body', `**Question from the implementer:** ${result.question}\n\n${(result.options || []).map(o => `- ${o}`).join('\n')}\n\nRecommended: ${result.recommended || 'none'}\n\n${aiFooter('flow-task', result.agent, result.model, git(wt, 'rev-parse', 'HEAD').out)}`]);
       }
@@ -480,8 +482,7 @@ function cmdTick(cfg, flags) {
 // The tracker is a mirror, never a source: the sync agent reads the hub and writes only the tracker, through its MCP server.
 export function syncPlan(cfg) {
   const t = cfg.tracker;
-  if (!t) throw new Error('no tracker in .flow/flow.json');
-  if (t.kind !== 'linear') throw new Error(`tracker kind ${t.kind} is not supported (only linear)`);
+  trackerFor(cfg);
   const mcp = resolve(cfg.hub, t.mcp_config || '.mcp.json');
   const hub = cfg.hubRepo;
   const args = `flow.js: node ${SELF}\nhub: ${cfg.hub}\nhub github: ${hub.github || 'unknown'}\nhub default: ${hub.default}\n`
@@ -494,6 +495,33 @@ function cmdSync(cfg) {
   const r = runAgent(cfg, { cwd: cfg.hub, access: 'tracker', role: 'sync', skill: 'flow-sync', args, dir: runDir(cfg, 'tracker'), kind: 'sync', mcpConfig });
   logEvent(cfg, { id: 'tracker', action: 'sync', detail: `${r.agent}/${r.model}: ${r.summary || r.reason || r.status}`, session_id: r.session_id, usage: r.usage });
   console.log(`sync: ${r.summary || r.reason || r.status}`);
+  if (r.status !== 'done') return;
+  const issues = { ...readIssues(cfg), ...Object.fromEntries(validIssues(r.issues, trackerFor(cfg)).map(i => [i.task, i])) };
+  writeFileSync(join(cfg.state, 'issues.json'), JSON.stringify(issues, null, 1));
+  const features = readFeatures(readHubTree(cfg));
+  for (const id of Object.keys(issues)) {
+    const [feature, nn] = id.split('/');
+    const task = features[feature]?.tasks[nn];
+    const repo = task && cfg.repos[task.repo];
+    const pr = repo && ghPr(repo, `flow/${id}`);
+    if (pr?.state === 'OPEN') linkIssue(cfg, repo, pr.number, id, runDir(cfg, 'tracker'));
+  }
+}
+
+// ---------- the task's issue on its PR ----------
+// The sync run returns each task's issue; flow.js names it on the task PR, the same way for every tracker.
+const readIssues = cfg => { try { return JSON.parse(readFileSync(join(cfg.state, 'issues.json'), 'utf8')); } catch { return {}; } };
+
+function linkIssue(cfg, repo, number, id, dir) {
+  const issue = cfg.tracker && readIssues(cfg)[id];
+  if (!issue) return;
+  const pr = json('gh', ['pr', 'view', String(number), '-R', repo.github, '--json', 'title,body']);
+  const next = withIssue(pr, issue, trackerFor(cfg));
+  if (!next.changed) return;
+  const file = join(dir, 'pr-body-issue.md');
+  writeFileSync(file, next.body);
+  must('gh', ['pr', 'edit', String(number), '-R', repo.github, '--title', next.title, '--body-file', file]);
+  logEvent(cfg, { id, action: 'issue', detail: `${issue.key} on #${number}` });
 }
 
 // ---------- merge ----------

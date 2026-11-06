@@ -29,4 +29,4 @@ On OpenCode the Linear MCP tools are not direct tools: call them inside the `exe
 6. **Commands:** Bash only for `$FLOW status`, one command per call: no `cd`, loops, pipes or `&&`. A denied command is expected, not a blocker: use Glob and Read instead and continue.
 
 ## Finish
-Your last message is exactly one JSON object: `{"status":"done","summary":"<created n, updated m, unchanged k>"}` or `{"status":"failed","reason":"…"}`.
+Your last message is exactly one JSON object: `{"status":"done","summary":"<created n, updated m, unchanged k>","issues":[{"task":"<feature>/<NN>","key":"<issue key>","url":"<issue url>"}]}`, with every task's issue, created or not; or `{"status":"failed","reason":"…"}`. `flow.js` names each issue on its task's PR; you never touch GitHub.
