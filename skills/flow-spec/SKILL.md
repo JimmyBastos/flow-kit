@@ -31,4 +31,6 @@ Run in the hub repo (the one with `.flow/flow.json`), with the user. Output: `.f
 
 `--quick "<text>"`: for a small task, write a spec with Goal and 1–3 success criteria, one confirmation question, then commit.
 
+Ask only when the answer changes the spec and the material the user gave, the ADRs and the code do not answer it. Otherwise take the most reasonable option and state it in the spec.
+
 `--amend <feature>`: edit only what the user changes, show the diff, commit on yes. The plan's `spec_sha` no longer matches, so no new task of this feature starts until the orchestrator re-plans it.

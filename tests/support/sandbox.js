@@ -54,6 +54,8 @@ export function createSandbox({ config = {} } = {}) {
     task: id => JSON.parse(flow('status', '--json').stdout).features.flatMap(f => f.items).find(i => i.id === id),
     pullRequests: () => JSON.parse(readFileSync(join(root, 'prs.json'), 'utf8')),
     worktree: id => join(root, 'wt', `flow-${id.replace(/\//g, '-')}`),
+    /** Refuse any review that carries line comments, as GitHub does for a line outside the diff. */
+    rejectInline: () => writeFileSync(join(root, 'reject-inline'), ''),
     markRunning: id => { const dir = join(root, 'state', 'runs', id.replace(/\//g, '__')); mkdirSync(dir, { recursive: true }); writeFileSync(join(dir, 'pid'), String(process.pid)); },
   };
 }

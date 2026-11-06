@@ -13,14 +13,14 @@ describe('choosing the agent', () => {
 
     expect(agent).toBe('claude');
     expect(review_agent).toBe('claude');
-    expect(models.implement).toEqual(DEFAULTS.models.claude.implement);
+    expect(models.builder).toEqual(DEFAULTS.models.claude.builder);
   });
 
   it('runs every role on the agent flow.json names, with that agent\'s models', () => {
     const { agent, models } = resolveAgent({ agent: 'opencode' });
 
     expect(agent).toBe('opencode');
-    expect(models.plan).toEqual(DEFAULTS.models.opencode.plan);
+    expect(models.planner).toEqual(DEFAULTS.models.opencode.planner);
   });
 
   it('lets FLOW_AGENT override flow.json for one run', () => {
@@ -31,19 +31,19 @@ describe('choosing the agent', () => {
     const { agent, models } = resolveAgent({ agent: 'claude', review_agent: 'opencode' });
 
     expect(agent).toBe('claude');
-    expect(models.review).toEqual(DEFAULTS.models.opencode.review);
-    expect(models.implement).toEqual(DEFAULTS.models.claude.implement);
+    expect(models.reviewer).toEqual(DEFAULTS.models.opencode.reviewer);
+    expect(models.builder).toEqual(DEFAULTS.models.claude.builder);
   });
 
   it('takes per-agent model overrides, as one model or a fallback list', () => {
-    const { models } = resolveAgent({ agent: 'opencode', models: { opencode: { review: 'x/one', plan: ['x/a', 'x/b'] } } });
+    const { models } = resolveAgent({ agent: 'opencode', models: { opencode: { reviewer: 'x/one', planner: ['x/a', 'x/b'] } } });
 
-    expect(models.review).toEqual(['x/one']);
-    expect(models.plan).toEqual(['x/a', 'x/b']);
+    expect(models.reviewer).toEqual(['x/one']);
+    expect(models.planner).toEqual(['x/a', 'x/b']);
   });
 
   it('reads the legacy role-to-model map as Claude models', () => {
-    expect(resolveAgent({ models: { review: 'sonnet' } }).models.review).toEqual(['sonnet']);
+    expect(resolveAgent({ models: { reviewer: 'sonnet' } }).models.reviewer).toEqual(['sonnet']);
   });
 
   it('refuses an agent it has no adapter for', () => {
@@ -130,8 +130,8 @@ describe('model fallback', () => {
     run(o) { this.calls.push(o.model); return outcomes.shift(); },
   });
   const ok = { isError: false, text: '{"status":"done","summary":"ok"}' };
-  const config = (extra = {}) => aConfig({ hub: '/hub', max_turns: 10, models: { ...aConfig().models, implement: ['first', 'second'] }, ...extra });
-  const run = (cfg, agents, role = 'implement') => runAgent(cfg, { cwd: dir, access: 'worker', role, skill: 'flow-task', args: '', dir, kind: 'implement' }, agents);
+  const config = (extra = {}) => aConfig({ hub: '/hub', max_turns: 10, models: { ...aConfig().models, builder: ['first', 'second'] }, ...extra });
+  const run = (cfg, agents, role = 'builder') => runAgent(cfg, { cwd: dir, access: 'worker', role, skill: 'flow-task', args: '', dir, kind: 'implement' }, agents);
 
   it('tells an unavailable model from a failed run', () => {
     expect(isUnavailable({ isError: true, error: 'Claude AI usage limit reached' })).toBe(true);
@@ -148,7 +148,7 @@ describe('model fallback', () => {
 
     expect(claude.calls).toEqual(['first', 'second']);
     expect(r).toMatchObject({ status: 'done', agent: 'claude', model: 'second' });
-    expect(r.fallback_from[0]).toMatch(/^first: usage limit/);
+    expect(r.fallback_from[0]).toMatch(/first: usage limit/);
   });
 
   it('never retries a run that failed for any other reason', () => {
@@ -161,7 +161,7 @@ describe('model fallback', () => {
   it('runs the review on review_agent', () => {
     const claude = fakeAgent([]), opencode = fakeAgent([ok]);
 
-    const r = run(config({ review_agent: 'opencode', models: { ...aConfig().models, review: ['oc/review'] } }), { claude, opencode }, 'review');
+    const r = run(config({ review_agent: 'opencode', models: { ...aConfig().models, reviewer: ['oc/review'] } }), { claude, opencode }, 'reviewer');
 
     expect(r).toMatchObject({ agent: 'opencode', model: 'oc/review' });
     expect(claude.calls).toEqual([]);

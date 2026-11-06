@@ -9,7 +9,7 @@ You run headless in the task's worktree, on branch `flow/<feature>/<NN>`. `flow.
 
 ## Before coding
 1. Read the task file, the repo's `plan-<repo>.md` next to it, the spec's success criteria the task cites, the repo's `AGENTS.md`, and the `docs/rules/` files whose globs match what you will touch.
-2. If a PR exists (`gh pr view --json number,body,comments`), read every comment. Answers to your questions and review findings are there.
+2. If a PR exists (`gh pr view --json number,body,comments,reviews`), read every comment and review, and the file named by `review line comments` (the comments on code lines). Answers to your questions and review findings are there.
 3. If `git status` shows merge conflicts, resolve them first. Keep both sides' intent, and rerun the tests.
 
 ## Work
@@ -21,11 +21,11 @@ You run headless in the task's worktree, on branch `flow/<feature>/<NN>`. `flow.
 - **Commands:** one command per Bash call, run from the current directory: no pipes, `&&`, `;` or `git -C`. Read files with the Read tool; list them with `git ls-files`, search with `git grep`. A denied command is expected, not a blocker: use one of these allowed ways and continue.
 
 ## Fix mode
-Read the latest review comment and every human comment after it; a human decision is final. Address every **block** finding. To prove a bug first, `test-author` may write the failing test. When done, post **one** comment for the whole round with `gh pr comment`, one line per finding, in the review's order:
+Read the latest review comment and every human comment after it; a human decision is final. Address every **Block** issue; take a **Recommended** one only when it is small. Each line of your comment starts with the issue's severity, as in the review. For each one, apply its rule to every matching place in the diff (`git grep`), not only the cited line, and fix the rule, not the example: a tenancy check made after reading all rows does not satisfy a scoping rule. To prove a bug first, `test-author` may write the failing test. When done, post **one** comment for the whole round with `gh pr comment`, one line per finding, in the review's order:
 ```
 **Fixes in `<sha7>`**
-1. Fixed: <what changed, at most 20 words>
-2. Not changed: <reason with evidence>
+1. 🔴 Block · Fixed: <what changed, at most 20 words>
+2. 🟡 Recommended · Not changed: <reason with evidence>
 
 _👾 flow-task · <run by> · `<sha7>`_
 ```
