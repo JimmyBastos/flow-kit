@@ -34,7 +34,7 @@ The reader is the implementer, then a person on a phone. Above `<details>` they 
 
 ## Template
 ```
-## 🔧 Fix
+## <✅ Merge | 🔧 Fix | ⚠️ Escalate, from your recommendation>
 
 <verdict sentence>
 
@@ -53,7 +53,7 @@ The reader is the implementer, then a person on a phone. Above `<details>` they 
 _👾 flow-review · <run by> · `<HEAD short>`_
 <!-- flow-review sha=<HEAD> recommendation=<merge|fix|escalate> -->
 ```
-The heading is `## ✅ Merge`, `## 🔧 Fix` or `## ⚠️ Escalate`. `<run by>` is the argument as given, for example `claude · opus`.
+The example lines are illustrations: write your own. The heading matches your recommendation. `<run by>` is the argument as given, for example `claude · opus`.
 
 ## Finish
 Your last message is exactly one JSON object: `{"status":"done","recommendation":"merge|fix|escalate","sha":"<HEAD>"}`.
