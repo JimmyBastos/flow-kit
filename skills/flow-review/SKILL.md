@@ -9,15 +9,15 @@ You run headless in the PR's worktree. Never edit or commit code. Your output is
 
 ## Steps
 1. `HEAD=$(git rev-parse HEAD)`. Read the PR (`gh pr view --json number,body,comments`), its task file (the `Task:` line), the plan, and the spec's success criteria. For a plan PR (branch `flow/<feature>/plan`), review the plan and task files against the spec instead: every SC covered, nothing from Not included, no extra scope, matching contracts, no file over its size.
-2. **Run the repo's gates**: every unticked item in the PR body's **Validations** list, except `/audit`. Skills run by name; agents run as subagents. Each gate's failure is a **block** finding.
-3. **Acceptance criteria:** for each criterion, find where the diff meets it and which test covers it. Missing or untested is a **block**.
-4. **Drift:** a difference from the plan that is listed under Notes with a reason is fine. An unlisted difference is a **block**. A change to *what* (scope, a success criterion, a cross-repo contract) is an **escalate**.
-5. **PR description:** too long, file by file, or holding agent-facing text is a **block**.
-6. **Evidence:** cite `file:line` and quote the code. Re-open the file before reporting. Style no rule states is not a finding.
-7. **Commands:** one command per Bash call, run from the current directory: no pipes, `&&`, `;` or `git -C`. Read files with the Read tool; list them with `git ls-files`, search with `git grep`. A denied command is expected, not a blocker: use one of these allowed ways and continue.
+2. **Earlier reviews:** a first review is complete: report every finding in one pass. A later review is a delta of the last one. Check each of its block findings and the fix comment's answers at HEAD: fixed, or still open (still a block). A new block on code an earlier review already saw must be a real defect, not a detail it could have raised then. A human answer to an earlier decision is final: check the code against it and never ask it again.
+3. **The whole, not the details:** review the change as part of the codebase, not only the diff lines: how it fits its callers, the modules it touches, the data model and the plan. Block only on what breaks behavior, data, security, tenancy, a contract or a criterion. Naming, wording, small style and nice-to-haves are logs at most.
+4. **Run the repo's gates**: every unticked item in the PR body's **Validations** list, except `/audit`. Skills run by name; agents run as subagents. Each gate's failure is a **block** finding.
+5. **Acceptance criteria:** for each criterion, find where the diff meets it and which test covers it. Missing or untested is a **block**.
+6. **Drift:** a difference from the plan that is listed under Notes with a reason is fine. An unlisted difference is a **block**. A change to *what* (scope, a success criterion, a cross-repo contract) is an **escalate**. A PR description too long, file by file, or holding agent-facing text is a **block**.
+7. **Evidence:** cite `file:line` and quote the code. Re-open the file before reporting.
+8. **Commands:** one command per Bash call, run from the current directory: no pipes, `&&`, `;` or `git -C`. Read files with the Read tool; list them with `git ls-files`, search with `git grep`. A denied command is expected, not a blocker: use one of these allowed ways and continue.
 
 ## Recommendation
-- A human comment that answers an earlier review's decisions is final: check the code against it and never ask it again.
 - `escalate` only for a decision the user must make: scope, product, irreversible data or production effects, the AI's own rules, credentials. Say the decision, the options, and your recommendation.
 - `fix` if any block finding remains.
 - `merge` otherwise.
@@ -27,7 +27,7 @@ Copy the PR body to the PR body file, tick the Validations boxes that passed, ch
 The reader is the implementer, then a person on a phone. Above `<details>` they must learn the verdict, what to change and what to decide, in under 20 lines.
 - **Say each thing once.** A finding goes in **To fix** or **Needs you**, never both; Details holds the evidence, not a second copy.
 - **Verdict:** one sentence of at most 25 words, naming the main reason.
-- **To fix:** one line per block finding, at most 20 words: `file:line`, the change to make, the rule in brackets. No quotes and no reasoning here.
+- **To fix:** one line per block finding, at most 20 words: `file:line`, the change to make, the rule in brackets; an earlier one still open starts with `still open:`. No quotes and no reasoning here. **Earlier** is left out on a first review.
 - **Needs you:** escalate only. One line per decision: the question, the options as `(a)`, `(b)`, and your pick with a reason of a few words. Leave out anything a human comment already answered.
 - **Not this PR's fault:** a problem that exists on the default branch is a log, never a block.
 - Leave out empty sections. No tables, headings or quotes outside `<details>`.
@@ -39,7 +39,7 @@ The reader is the implementer, then a person on a phone. Above `<details>` they 
 <verdict sentence>
 
 **Checks** typecheck ✅ · lint ✅ · test ✅ · /validate ❌ 2 · qa-review ❌ 1
-**Criteria** 2/4 met · **Findings** 3 block · 1 ask · 2 log
+**Criteria** 2/4 met · **Earlier** 4/5 fixed · **Findings** 3 block · 1 ask · 2 log
 
 **To fix**
 1. `src/x.repository.ts:47` check the workspace of every id before insert [tenancy]
