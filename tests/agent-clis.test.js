@@ -51,6 +51,14 @@ describe('choosing the agent', () => {
   });
 });
 
+describe('unavailable models', () => {
+  it('treats exhausted credits and free limits as unavailable, so the next model runs', () => {
+    expect(isUnavailable({ isError: true, error: 'Upstream request failed: Insufficient account funds' })).toBe(true);
+    expect(isUnavailable({ isError: true, error: 'Free usage limit reached. Free models work in OpenCode' })).toBe(true);
+    expect(isUnavailable({ isError: true, error: 'test failed: expected 2' })).toBe(false);
+  });
+});
+
 describe('OpenCode permissions', () => {
   const worker = opencodeConfig(buildSettings('worker', { allow: ['Bash(pnpm *)'] }), { maxTurns: 50 });
   const p = worker.permission;
