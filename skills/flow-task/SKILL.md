@@ -26,7 +26,7 @@ Read the latest review comment and every human comment after it; a human decisio
 **Fixes in `<sha7>`**
 1. Fixed: <what changed, at most 20 words>
 2. Not changed: <reason with evidence>
-<sub>🤖 flow-task · <run by> · `<sha7>`</sub>
+<sub><i>🤖 flow-task · <run by> · `<sha7>`</i></sub>
 ```
 
 ## PR description
