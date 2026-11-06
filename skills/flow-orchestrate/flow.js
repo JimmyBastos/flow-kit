@@ -412,8 +412,9 @@ export function formatLineComments(items) {
 function exportLineComments(repo, number, dir) {
   const file = join(dir, 'review-comments.md');
   const r = sh('gh', ['api', '--paginate', `repos/${repo.github}/pulls/${number}/comments`, '--jq', '.[] | {id, path, line, original_line, in_reply_to_id, body, user: .user.login}']);
-  const items = r.code === 0 ? r.out.split('\n').filter(Boolean).map(l => JSON.parse(l)) : [];
-  writeFileSync(file, formatLineComments(items) + '\n');
+  // A failed read is not "no comments": the run must know the list is missing.
+  const text = r.code === 0 ? formatLineComments(r.out.split('\n').filter(Boolean).map(l => JSON.parse(l))) : `Could not read the line comments (${(r.err || r.out).trim().slice(0, 200)}). Check the PR on GitHub before you decide.`;
+  writeFileSync(file, text + '\n');
   return file;
 }
 
