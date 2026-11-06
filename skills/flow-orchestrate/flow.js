@@ -369,7 +369,8 @@ export function parseResult(text) {
 // Headless runs do not load user-level skills, so the skill text is the prompt, on every agent.
 export function skillPrompt(skill, args) {
   const text = readFileSync(join(KIT, '..', skill, 'SKILL.md'), 'utf8').replace(/^---\n[\s\S]*?\n---\n/, '');
-  return `${text.trim()}\n\n## Arguments\n${args}\n`;
+  // A headless run has no one to talk to: say so, or a clerk may answer with a greeting and do nothing.
+  return `Run the skill below now, from start to finish, with the arguments given. Do not reply with a greeting or a question; your last message is the JSON result the skill names.\n\n${text.trim()}\n\n## Arguments\n${args}\n`;
 }
 
 // Settings are generated per run from the templates in settings/, so they can name this flow.js and the repo's own commands.

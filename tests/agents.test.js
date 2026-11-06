@@ -21,7 +21,7 @@ describe('agent prompts', () => {
   it('uses the skill text without its frontmatter, followed by the arguments', () => {
     const prompt = skillPrompt('flow-task', 'task file: /x/01.md');
 
-    expect(prompt.startsWith('# flow-task')).toBe(true);
+    expect(prompt).toMatch(/^# flow-task$/m);
     expect(prompt).not.toMatch(/^name:/m);
     expect(prompt.trimEnd().endsWith('## Arguments\ntask file: /x/01.md')).toBe(true);
   });

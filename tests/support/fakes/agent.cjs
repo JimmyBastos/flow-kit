@@ -14,7 +14,7 @@ exports.play = (agent, model, prompt) => {
   const scriptFile = `${process.env.FAKE}/script`;
   const [outcome, ...rest] = fs.readFileSync(scriptFile, 'utf8').split('\n').filter(Boolean);
   fs.writeFileSync(scriptFile, rest.join('\n'));
-  const skill = (prompt.match(/^# (flow-[\w-]+)/) || [])[1];
+  const skill = (prompt.match(/^# (flow-[\w-]+)/m) || [])[1];
   fs.appendFileSync(`${process.env.FAKE}/calls.jsonl`, JSON.stringify({ agent, model, skill, outcome, forced: !!argument('force') }) + '\n');
 
   if (outcome === 'limit') return { unavailable: `usage limit reached for ${model}` };
