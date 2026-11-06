@@ -11,7 +11,7 @@ export function aConfig(overrides = {}) {
     repos: { api: { github: 'org/api', default: 'main', allow: [] } },
     hubRepo: { github: 'org/hub', default: 'main', allow: [] },
     agent: 'claude',
-    models: { orchestrator: ['opus'], plan: ['opus'], implement: ['sonnet'], fix_retry: ['opus'], review: ['opus'], sync: ['sonnet'] },
+    models: { orchestrator: ['opus'], planner: ['opus'], builder: ['sonnet'], reviewer: ['opus'], clerk: ['sonnet'] },
     ...overrides,
   };
 }

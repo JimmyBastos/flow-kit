@@ -6,19 +6,17 @@
   "models": {
     "claude": {
       "orchestrator": ["opus", "sonnet"],
-      "plan": ["opus", "sonnet"],
-      "implement": ["sonnet", "opus"],
-      "fix_retry": ["opus", "sonnet"],
-      "review": ["opus", "sonnet"],
-      "sync": ["sonnet", "haiku"]
+      "planner": ["opus", "sonnet"],
+      "builder": ["sonnet", "opus"],
+      "reviewer": ["opus", "sonnet"],
+      "clerk": ["claude-haiku-4-5", "sonnet"]
     },
     "opencode": {
       "orchestrator": ["opencode-go/glm-5.3", "opencode-go/kimi-k2.7-code"],
-      "plan": ["opencode-go/glm-5.3", "opencode-go/deepseek-v4-pro"],
-      "implement": ["opencode-go/glm-5.3", "opencode-go/kimi-k2.7-code"],
-      "fix_retry": ["opencode-go/kimi-k2.7-code", "opencode-go/glm-5.3"],
-      "review": ["opencode-go/gemini-4-argon", "opencode-go/glm-5.3"],
-      "sync": ["opencode-go/glm-5.3-flash", "opencode-go/glm-5.3"]
+      "planner": ["opencode-go/glm-5.3", "opencode-go/deepseek-v4-pro"],
+      "builder": ["opencode-go/glm-5.3", "opencode-go/kimi-k2.7-code"],
+      "reviewer": ["opencode-go/gemini-4-argon", "opencode-go/glm-5.3"],
+      "clerk": ["opencode-go/glm-5.3-flash", "opencode-go/glm-5.3"]
     }
   }
 }

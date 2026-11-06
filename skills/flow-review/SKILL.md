@@ -14,7 +14,7 @@ You run headless in the PR's worktree. Never edit or commit code. Your output is
 4. **Run the repo's gates**: every unticked item in the PR body's **Validations** list, except `/audit`. Skills run by name; agents run as subagents. Each gate's failure is a **block** finding.
 5. **Acceptance criteria:** for each criterion, find where the diff meets it and which test covers it. Missing or untested is a **block**.
 6. **Drift:** a difference from the plan that is listed under Notes with a reason is fine. An unlisted difference is a **block**. A change to *what* (scope, a success criterion, a cross-repo contract) is an **escalate**. A PR description too long, file by file, or holding agent-facing text is a **block**.
-7. **Evidence:** cite `file:line` and quote the code. Re-open the file before reporting.
+7. **Evidence:** cite `file:line` and quote the code. Every finding names the convention it applies as `docs/rules/<file>.md:<line>`, or the SC, plan line or gate. Re-open the file before reporting.
 8. **Commands:** one command per Bash call, run from the current directory: no pipes, `&&`, `;` or `git -C`. Read files with the Read tool; list them with `git ls-files`, search with `git grep`. A denied command is expected, not a blocker: use one of these allowed ways and continue.
 
 ## Recommendation
@@ -27,7 +27,7 @@ Copy the PR body to the PR body file, tick the Validations boxes that passed, ch
 The reader is the implementer, then a person on a phone. Above `<details>` they must learn the verdict, what to change and what to decide, in under 20 lines.
 - **Say each thing once.** A finding goes in **To fix** or **Needs you**, never both; Details holds the evidence, not a second copy.
 - **Verdict:** one sentence of at most 25 words, naming the main reason.
-- **To fix:** one line per block finding, at most 20 words: `file:line`, the change to make, the rule in brackets; an earlier one still open starts with `still open:`. No quotes and no reasoning here. **Earlier** is left out on a first review.
+- **To fix:** one line per block finding, at most 20 words: `file:line`, the change to make, the convention as `[docs/rules/<file>.md:<line>]`; an earlier one still open starts with `still open:`. No quotes and no reasoning here. **Earlier** is left out on a first review.
 - **Needs you:** escalate only. One line per decision: the question, the options as `(a)`, `(b)`, and your pick with a reason of a few words. Leave out anything a human comment already answered.
 - **Not this PR's fault:** a problem that exists on the default branch is a log, never a block.
 - Leave out empty sections. No tables, headings or quotes outside `<details>`.
@@ -42,13 +42,13 @@ The reader is the implementer, then a person on a phone. Above `<details>` they 
 **Criteria** 2/4 met · **Earlier** 4/5 fixed · **Findings** 3 block · 1 ask · 2 log
 
 **To fix**
-1. `src/x.repository.ts:47` check the workspace of every id before insert [tenancy]
-2. `src/x.spec.ts:94` assert the scoped SQL, not just that `where` ran [AC SC-1]
+1. `src/x.repository.ts:47` check the workspace of every id before insert [docs/rules/data.md:46]
+2. `src/x.spec.ts:94` assert the scoped SQL, not just that `where` ran [SC-1]
 
 **Needs you**
 1. Hard delete for `x`? (a) add it to the rule's exceptions (b) add `deleted_at`. Pick (a): a link has no life of its own.
 
-<details><summary>Evidence</summary> one line each. Criteria: ✅/❌ · SC · `file:line` · test. Findings: severity · rule · `file:line` · short quote · why. Not checked: what and why. </details>
+<details><summary>Evidence</summary> one line each. Criteria: ✅/❌ · SC · `file:line` · test. Conventions followed: `docs/rules/<file>.md:<line>` · where the change follows it. Findings: severity · `docs/rules/<file>.md:<line>` · `file:line` · short quote · why. Not checked: what and why. </details>
 
 _👾 flow-review · <run by> · `<HEAD short>`_
 <!-- flow-review sha=<HEAD> recommendation=<merge|fix|escalate> -->

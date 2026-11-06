@@ -20,11 +20,12 @@ You run headless in a worktree of the hub repo on branch `flow/<feature>/plan`. 
    ## Risks
    ## Tasks         one line each: NN [repo] title (depends: NN)
    ```
-3. **Write `.flow/<feature>/tasks/NN-<slug>.md`** for each task, at most about 40 lines. A task is one PR and one session. Split at points where the build still passes: schema before use, provider before consumer. Add `depends` only where tasks touch the same code or contract, so the rest can run in parallel.
+3. **Write `.flow/<feature>/tasks/NN-<slug>.md`** for each task, at most about 40 lines. A task is one PR and one session. Split at points where the build still passes: schema before use, provider before consumer. Add `depends` only where tasks touch the same code or contract, so the rest can run in parallel. **complexity** picks the model: `low` follows an existing pattern in one module, with no migration, contract, security or tenancy logic; `high` changes a schema, a migration, tenancy, a cross-repo contract or concurrency; otherwise `medium`.
    ```
    ---
    repo: <tag>
    depends: [NN, ...]
+   complexity: low | medium | high
    ---
    # NN <imperative title>
    ## Goal                 one sentence, product language

@@ -13,7 +13,7 @@ import { trackerFor, validIssues, withIssue } from './trackers.js';
 const SELF = fileURLToPath(import.meta.url);
 const KIT = dirname(SELF);
 export const DEFAULTS = JSON.parse(readFileSync(join(KIT, 'defaults.json'), 'utf8'));
-export const ROLES = ['orchestrator', 'plan', 'implement', 'fix_retry', 'review', 'sync'];
+export const ROLES = ['orchestrator', 'planner', 'builder', 'reviewer', 'clerk'];
 
 // ---------- small helpers ----------
 export function sh(cmd, args, opts = {}) {
@@ -68,18 +68,20 @@ export function resolveAgent(file, envAgent) {
     if (!AGENTS[name]) throw new Error(`unknown agent "${name}"; known: ${Object.keys(AGENTS).join(', ')}`);
   let overrides = file.models || {};
   if (Object.keys(overrides).some(k => ROLES.includes(k))) overrides = { claude: overrides };
-  const list = v => [v].flat().filter(Boolean);
-  const agentOf = role => (role === 'review' ? review_agent : agent);
+  const list = v => (v && typeof v === 'object' && !Array.isArray(v)
+    ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, [x].flat().filter(Boolean)])) : [v].flat().filter(Boolean));
+  const empty = v => (Array.isArray(v) ? !v.length : !Object.values(v).some(l => l.length));
+  const agentOf = role => (role === 'reviewer' ? review_agent : agent);
   const models = Object.fromEntries(ROLES.map(role => {
     const name = agentOf(role);
     return [role, list(overrides[name]?.[role] ?? DEFAULTS.models[name]?.[role])];
   }));
-  const missing = ROLES.filter(r => !models[r].length);
+  const missing = ROLES.filter(r => empty(models[r]));
   if (missing.length) throw new Error(`no model for: ${missing.map(r => `${agentOf(r)}/${r}`).join(', ')}; set them in .flow/flow.json "models"`);
   return { agent, review_agent, models };
 }
 
-export const agentFor = (cfg, role) => (role === 'review' ? cfg.review_agent || cfg.agent : cfg.agent);
+export const agentFor = (cfg, role) => (role === 'reviewer' ? cfg.review_agent || cfg.agent : cfg.agent);
 
 export function logEvent(cfg, ev) {
   appendFileSync(join(cfg.state, 'events.jsonl'), JSON.stringify({ at: new Date().toISOString(), ...ev }) + '\n');
@@ -122,7 +124,7 @@ export function readFeatures(tree) {
     else {
       const { fm, body } = frontmatter(tree.show(f));
       const title = (body.match(/^#\s+\d+\s+(.+)$/m) || [])[1] || f;
-      feat.tasks[m[4]] = { id: `${m[1]}/${m[4]}`, nn: m[4], path: f, repo: fm.repo, depends: fm.depends || [], title };
+      feat.tasks[m[4]] = { id: `${m[1]}/${m[4]}`, nn: m[4], path: f, repo: fm.repo, depends: fm.depends || [], complexity: fm.complexity || 'medium', title };
     }
   }
   return features;
@@ -222,7 +224,7 @@ export function buildStatus(cfg, { tree = readHubTree(cfg), prsByRepo, pid = id 
     for (const t of Object.values(f.tasks).sort((a, b) => a.nn.localeCompare(b.nn))) {
       const pr = prFor(t.repo, `flow/${f.name}/${t.nn}`);
       const item = { ...t, kind: 'task', running: !!pid(t.id), last_run: last(t.id), plan_current: planCurrent,
-        deps_merged: t.depends.every(merged), pr: pr ? readPrFacts(pr, cfg.human) : null };
+        deps_merged: t.depends.every(merged), complexity: t.complexity, pr: pr ? readPrFacts(pr, cfg.human) : null };
       if (item.pr?.state === 'OPEN' && cfg.repos[t.repo]) item.pr.checks = checks(cfg.repos[t.repo], item.pr.number);
       item.state = deriveState(item);
       feature.items.push(item);
@@ -278,17 +280,34 @@ export function checkLaunch(cfg, status, id, mode) {
   if (item.kind === 'task' && !item.deps_merged && !item.pr) return `${id}: dependencies not merged (${item.depends.join(', ')})`;
   if (mode === 'review' && !item.pr) return `${id}: no PR to review`;
   const role = roleFor(item, mode);
-  if (!modelsFor(cfg, role).length) return `every ${agentFor(cfg, role)} model for ${role} is excluded by model_policy`;
+  if (!modelsFor(cfg, role, item.complexity).length) return `every ${agentFor(cfg, role)} model for ${role} is excluded by model_policy`;
   return null;
 }
 
 export function roleFor(item, mode) {
-  if (mode === 'review') return 'review';
-  if (item.kind === 'plan') return 'plan';
-  return mode === 'fix' && (item.pr?.fix_rounds ?? 0) >= 2 ? 'fix_retry' : 'implement';
+  if (mode === 'review') return 'reviewer';
+  if (item.kind === 'plan') return 'planner';
+  return 'builder'; // a fix is a builder run on the PR's branch
 }
 
-export const modelsFor = (cfg, role) => cfg.models[role].filter(m => !(cfg.model_policy?.deny || []).includes(m));
+// A role's list may be keyed by task complexity (low | medium | high). An entry `<agent>:<model>` runs on that
+// agent, so a list can fall back across agents; a plain entry runs on the role's agent.
+export function modelsFor(cfg, role, complexity) {
+  const v = cfg.models[role];
+  const list = Array.isArray(v) ? v : (v[complexity] || v.medium || Object.values(v)[0] || []);
+  return list.filter(m => !(cfg.model_policy?.deny || []).includes(m.replace(/^(claude|opencode):/, '')));
+}
+export const splitEntry = (entry, agent, agents = AGENTS) => {
+  const m = entry.match(/^(\w+):(.+)$/);
+  return m && agents[m[1]] ? [m[1], m[2]] : [agent, entry];
+};
+
+// A model that was unavailable is skipped for 30 minutes, so ticks do not fail on it one after another.
+const COOLDOWN_MS = 30 * 60 * 1000;
+const coolFile = cfg => cfg.state && join(cfg.state, 'unavailable.json');
+const readCool = cfg => { try { return JSON.parse(readFileSync(coolFile(cfg), 'utf8')); } catch { return {}; } };
+const cooling = (cfg, key) => (readCool(cfg)[key] || 0) > Date.now();
+function coolDown(cfg, key) { if (coolFile(cfg)) writeFileSync(coolFile(cfg), JSON.stringify({ ...readCool(cfg), [key]: Date.now() + COOLDOWN_MS }, null, 1)); }
 
 const ORCA = () => process.env.ORCA_CLI_COMMAND || 'orca';
 
@@ -355,20 +374,21 @@ export function buildSettings(role, { flowJs = SELF, allow = [] } = {}) {
 
 // One headless run of a skill. `access` picks the permission template; `role` picks the model list. On an unavailable
 // model, the same run goes to the role's next model in the same agent. Any other failure is the run's result.
-export function runAgent(cfg, { cwd, access, role, skill, args, dir, kind, allow = [], mcpConfig }, agents = AGENTS) {
-  const name = agentFor(cfg, role);
-  const agent = agents[name];
+export function runAgent(cfg, { cwd, access, role, skill, args, dir, kind, allow = [], mcpConfig, complexity }, agents = AGENTS) {
   const settings = buildSettings(access, { allow });
   const tried = [];
-  for (const model of modelsFor(cfg, role)) {
+  for (const entry of modelsFor(cfg, role, complexity)) {
+    const [name, model] = splitEntry(entry, agentFor(cfg, role), agents);
+    const agent = agents[name];
+    if (cooling(cfg, `${name}:${model}`)) { tried.push(`${name}:${model}: cooling down`); continue; }
     const r = agent.run({ cwd, prompt: skillPrompt(skill, `${args}\nrun by: ${name} · ${model}`), model, settings, dir, kind, maxTurns: cfg.max_turns,
       env: { ...process.env, FLOW_HUB: cfg.hub }, dirs: [dir, cfg.hub], mcpConfig });
     const meta = { agent: name, model, denials: (r.denials || []).slice(0, 10), session_id: r.sessionId, usage: r.usage, transcript: r.transcript };
-    if (isUnavailable(r)) { tried.push(`${model}: ${String(r.error).slice(0, 120)}`); continue; }
+    if (isUnavailable(r)) { coolDown(cfg, `${name}:${model}`); tried.push(`${name}:${model}: ${String(r.error).slice(0, 120)}`); continue; }
     const result = r.isError ? { status: 'error', reason: String(r.error).slice(0, 500) } : parseResult(r.text);
     return { ...result, ...meta, ...(tried.length ? { fallback_from: tried } : {}) };
   }
-  return { status: 'error', reason: `no ${name} model available for ${role}: ${tried.join(' | ') || 'all excluded'}`.slice(0, 500), agent: name, denials: [] };
+  return { status: 'error', reason: `no model available for ${role}: ${tried.join(' | ') || 'all excluded'}`.slice(0, 500), agent: agentFor(cfg, role), denials: [] };
 }
 
 function ghPr(repo, branch) {
@@ -399,7 +419,6 @@ function cmdRun(cfg, id, mode) {
         copyFileSync(join(repo.path, repo.env_file), join(wt, repo.env_file));
       const pr0 = ghPr(repo, branch);
       const item = { kind: isPlan ? 'plan' : 'task', pr: pr0 && readPrFacts({ ...pr0, comments: [] }) };
-      if (mode === 'fix' && pr0) item.pr.fix_rounds = readPrFacts(json('gh', ['pr', 'view', String(pr0.number), '-R', repo.github, '--json', 'comments,headRefOid,number,state'])).fix_rounds;
       const role = roleFor(item, mode);
       rmSync(bodyFile, { force: true });
       // The hub checkout can lag origin (a plan PR just merged), so a task reads its feature folder as merged on origin.
@@ -409,7 +428,7 @@ function cmdRun(cfg, id, mode) {
         writeFileSync(join(hubCopy, f), tree.show(f));
       }
       const args = isPlan ? `feature: ${feature}\npr body: ${bodyFile}` : `task file: ${join(hubCopy, task.path)}\nhub path of the task: ${task.path}\nmode: ${mode}\npr body: ${bodyFile}`;
-      result = runAgent(cfg, { cwd: wt, access: 'worker', role, skill: isPlan ? 'flow-plan' : 'flow-task', args, dir, kind: mode, allow: repo.allow });
+      result = runAgent(cfg, { cwd: wt, access: 'worker', role, skill: isPlan ? 'flow-plan' : 'flow-task', args, dir, kind: mode, allow: repo.allow, complexity: task?.complexity });
       ev(mode, { detail: `${result.agent}/${result.model}: ${result.status}${result.reason ? ` (${result.reason})` : ''}${result.denials.length ? ` denied: ${result.denials.join(' | ')}` : ''}`, session_id: result.session_id, usage: result.usage });
       if (result.decisions?.length) appendFileSync(join(dir, 'decisions.md'), result.decisions.map(d => `- ${d}`).join('\n') + '\n');
       const ahead = git(wt, 'rev-list', '--count', `origin/${repo.default}..HEAD`).out;
@@ -438,7 +457,7 @@ function cmdRun(cfg, id, mode) {
     if (result.status === 'done' && ghPr(repo, branch)) {
       const number = ghPr(repo, branch).number;
       const args = `pr: ${number}\nrepo: ${repo.github}\nreview comment file: ${join(dir, 'review.md')}\npr body file: ${join(dir, 'pr-body-reviewed.md')}`;
-      const r = runAgent(cfg, { cwd: wt, access: 'worker', role: 'review', skill: 'flow-review', args, dir, kind: 'review', allow: repo.allow });
+      const r = runAgent(cfg, { cwd: wt, access: 'worker', role: 'reviewer', skill: 'flow-review', args, dir, kind: 'review', allow: repo.allow });
       ev('review', { detail: `${r.agent}/${r.model}: ${r.recommendation || r.status}`, session_id: r.session_id, usage: r.usage });
       if (r.status !== 'done') result = r;
     }
@@ -492,7 +511,7 @@ export function syncPlan(cfg) {
 
 function cmdSync(cfg) {
   const { args, mcpConfig } = syncPlan(cfg);
-  const r = runAgent(cfg, { cwd: cfg.hub, access: 'tracker', role: 'sync', skill: 'flow-sync', args, dir: runDir(cfg, 'tracker'), kind: 'sync', mcpConfig });
+  const r = runAgent(cfg, { cwd: cfg.hub, access: 'tracker', role: 'clerk', skill: 'flow-sync', args, dir: runDir(cfg, 'tracker'), kind: 'sync', mcpConfig });
   logEvent(cfg, { id: 'tracker', action: 'sync', detail: `${r.agent}/${r.model}: ${r.summary || r.reason || r.status}`, session_id: r.session_id, usage: r.usage });
   console.log(`sync: ${r.summary || r.reason || r.status}`);
   if (r.status !== 'done') return;
