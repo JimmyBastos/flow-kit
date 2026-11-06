@@ -128,9 +128,9 @@ export function readFeatures(tree) {
 }
 
 // ---------- PRs ----------
-// Every AI comment carries this attribution line: `<sub>🤖 <skill> · <agent> · <model></sub>`.
+// Every AI comment ends with the same attribution line: `<sub>🤖 <skill> · <agent> · <model> · `<sha7>`</sub>`.
 export const AI_MARK = '<sub>🤖';
-export const aiFooter = (skill, agent, model) => `<sub>🤖 ${[skill, agent, model].filter(Boolean).join(' · ')}</sub>`;
+export const aiFooter = (skill, agent, model, sha) => `<sub>🤖 ${[skill, agent, model, sha && `\`${sha.slice(0, 7)}\``].filter(Boolean).join(' · ')}</sub>`;
 const isAiComment = body => (body || '').includes(AI_MARK) || REVIEW_RE.test(body || '') || (body || '').includes(ESCALATION_MARK);
 export const REVIEW_RE = /<!--\s*flow-review sha=([0-9a-f]{7,40}) recommendation=(merge|fix|escalate)\s*-->/;
 export const ESCALATION_MARK = '<!-- flow-escalation -->';
@@ -430,7 +430,7 @@ function cmdRun(cfg, id, mode) {
           ev('pr', { detail: `opened #${pr?.number}` });
         } else if (body) must('gh', ['pr', 'edit', String(pr.number), '-R', repo.github, '--body-file', body], { cwd: wt });
         if (result.status === 'question' && pr)
-          must('gh', ['pr', 'comment', String(pr.number), '-R', repo.github, '--body', `**Question from the implementer:** ${result.question}\n\n${(result.options || []).map(o => `- ${o}`).join('\n')}\n\nRecommended: ${result.recommended || 'none'}\n\n${aiFooter('flow-task', result.agent, result.model)}`]);
+          must('gh', ['pr', 'comment', String(pr.number), '-R', repo.github, '--body', `**Question from the implementer:** ${result.question}\n\n${(result.options || []).map(o => `- ${o}`).join('\n')}\n\nRecommended: ${result.recommended || 'none'}\n\n${aiFooter('flow-task', result.agent, result.model, git(wt, 'rev-parse', 'HEAD').out)}`]);
       }
     }
     if (result.status === 'done' && ghPr(repo, branch)) {

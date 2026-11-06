@@ -116,7 +116,7 @@ describe('escalations', () => {
   });
 
   it('does not take an AI comment posted from the human login for a reply', () => {
-    const facts = readPrFacts(aPr({ comments: [anEscalation(), aComment('me', '**Fixes in `abc1234`**\n<sub>🤖 flow-task fix · claude · sonnet</sub>')] }), 'me');
+    const facts = readPrFacts(aPr({ comments: [anEscalation(), aComment('me', '**Fixes in `abc1234`**\n<sub>🤖 flow-task · claude · sonnet · `abc1234`</sub>')] }), 'me');
 
     expect(facts.escalation.open).toBe(true);
   });
